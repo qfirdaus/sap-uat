@@ -1,0 +1,15 @@
+/vendor/
+.env
+*.log
+*.sqlite
+node_modules/
+.idea/
+.DS_Store
+app/cache/
+app/cache/*
+public/cache/
+public_backup_*
+
+# staging deploy
+updates/
+_updates_archive/
