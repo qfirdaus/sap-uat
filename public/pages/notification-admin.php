@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/init.php';
@@ -30,12 +38,13 @@ if (empty($_SESSION['csrf_token'])) {
 $service = new NotificationAdminService($pdo);
 $groups = $service->getGroups();
 $templates = $service->getTemplates();
-$recent = $service->getRecentNotifications(25);
+$recent = [];
 $firstGroupId = (string)($groups[0]['f_groupID'] ?? '1');
 $currentLoginId = (string)($_SESSION['f_loginID'] ?? $_SESSION['f_stafID'] ?? 'user01');
 $lang = (string)($_SESSION['lang'] ?? 'ms');
-$version = (string)($_ENV['APP_ASSET_VER'] ?? date('ymdHis'));
+$version = (string)($_ENV['APP_ASSET_VER'] ?? filemtime(__FILE__) ?: '1');
 $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
+$notificationDeveloperSamples = require __DIR__ . '/../includes/notification-developer-samples.php';
 ?>
 <!doctype html>
 <html lang="<?= h($lang) ?>" data-bs-theme="<?= h($_SESSION['theme.layout'] ?? 'light') ?>">
@@ -48,9 +57,14 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
     include __DIR__ . '/../includes/head.php';
   ?>
   <meta name="csrf-token" content="<?= h((string)$_SESSION['csrf_token']) ?>">
+  <meta name="referrer" content="same-origin">
   <link href="<?= h(base_url('assets/css/datatables-standard.css')) ?>?v=<?= h($version) ?>" rel="stylesheet">
   <link href="<?= h(base_url('assets/vendor/flatpickr/flatpickr.min.css')) ?>?v=<?= h($version) ?>" rel="stylesheet">
+  <link href="<?= h(base_url('assets/css/pages/notification-admin.css')) ?>?v=<?= h($version) ?>" rel="stylesheet">
   <style>
+    .notification-admin-filters { display:flex; flex-wrap:wrap; gap:.75rem; margin-top:1rem; }
+    .notification-admin-filters label { display:flex; align-items:center; gap:.5rem; color:var(--bs-secondary-color); font-size:.78rem; font-weight:650; }
+    .notification-admin-filters select { min-width:140px; }
     .notification-admin-shell { width: 100%; }
     .notification-admin-card { border: 1px solid rgba(15,23,42,.08); border-radius: 8px; box-shadow: 0 8px 24px rgba(15,23,42,.06); }
     .notification-admin-toolbar { gap: .5rem; }
@@ -261,11 +275,116 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
       border-radius: 8px;
       font-weight: 600;
     }
+    #notificationSamplesModal {
+      z-index: 11020 !important;
+    }
+    #notificationSamplesModal,
+    #notificationSamplesModal .modal-dialog,
+    #notificationSamplesModal .modal-content,
+    #notificationSamplesModal .modal-content::before,
+    #notificationSamplesModal .modal-content::after {
+      box-shadow: none !important;
+      outline: 0 !important;
+      filter: none !important;
+    }
+    #notificationSamplesModal .modal-content {
+      border: 0;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #notificationSamplesModal .modal-header {
+      background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+      color: #fff;
+      border-bottom: 0;
+      padding: 1rem 1.35rem;
+    }
+    #notificationSamplesModal .modal-title {
+      color: #fff;
+      font-weight: 600;
+    }
+    #notificationSamplesModal .btn-close {
+      filter: invert(1);
+      opacity: .9;
+    }
+    #notificationSamplesModal .modal-body {
+      background: #f8fafc;
+      padding: 1.1rem 1.35rem;
+    }
+    .notification-samples-layout {
+      display: grid;
+      grid-template-columns: 245px minmax(0, 1fr);
+      gap: 1rem;
+    }
+    .notification-samples-tabs {
+      background: #fff;
+      border: 1px solid rgba(15, 23, 42, .08);
+      border-radius: 8px;
+      padding: .45rem;
+    }
+    .notification-samples-tabs .nav-link {
+      display: flex;
+      align-items: center;
+      gap: .55rem;
+      width: 100%;
+      border-radius: 7px;
+      color: #475569;
+      font-weight: 600;
+      text-align: left;
+      padding: .72rem .78rem;
+    }
+    .notification-samples-tabs .nav-link.active {
+      background: rgba(40, 167, 69, .1);
+      color: #198754;
+    }
+    .notification-sample-panel {
+      background: #fff;
+      border: 1px solid rgba(15, 23, 42, .08);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .notification-sample-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: .95rem 1rem;
+      border-bottom: 1px solid rgba(148, 163, 184, .18);
+      background: linear-gradient(180deg, rgba(248, 250, 252, .98), rgba(255, 255, 255, .98));
+    }
+    .notification-sample-header h6 {
+      margin: 0 0 .18rem;
+      color: #0f172a;
+      font-size: .95rem;
+      font-weight: 700;
+    }
+    .notification-sample-header p {
+      margin: 0;
+      color: #64748b;
+      font-size: .78rem;
+      line-height: 1.35;
+    }
+    .notification-code-block {
+      margin: 0;
+      max-height: 540px;
+      overflow: auto;
+      border: 0;
+      border-radius: 0;
+      background: #0f172a;
+      color: #e2e8f0;
+      font-size: .76rem;
+      line-height: 1.55;
+      padding: 1rem;
+      tab-size: 4;
+      white-space: pre;
+    }
     .flatpickr-calendar {
       z-index: 11060 !important;
     }
     .tooltip {
       z-index: 11080 !important;
+    }
+    .swal2-container {
+      z-index: 20000 !important;
     }
     .tooltip .tooltip-inner {
       max-width: 460px;
@@ -308,6 +427,82 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
     [data-bs-theme="dark"] #notificationSetupModal .form-label {
       color: #dbe4f0;
     }
+    [data-bs-theme="dark"] #notificationSamplesModal .modal-body {
+      background: #1e293b;
+    }
+    [data-bs-theme="dark"] .notification-samples-tabs,
+    [data-bs-theme="dark"] .notification-sample-panel,
+    [data-bs-theme="dark"] .notification-sample-header {
+      background: #111827;
+      border-color: rgba(148, 163, 184, .18);
+    }
+    [data-bs-theme="dark"] .notification-sample-header h6 {
+      color: #f8fafc;
+    }
+    @media (max-width: 991.98px) {
+      .notification-samples-layout {
+        grid-template-columns: 1fr;
+      }
+      .notification-samples-tabs {
+        display: flex;
+        overflow-x: auto;
+      }
+      .notification-samples-tabs .nav-link {
+        white-space: nowrap;
+      }
+    }
+    /* Keep modal labels readable when theme/global modal layers override gradients. */
+    #notificationSetupModal .modal-header,
+    #notificationSamplesModal .modal-header {
+      position: relative !important;
+      z-index: 2 !important;
+      display: flex !important;
+      visibility: visible !important;
+      min-height: 72px;
+      background-color: rgb(var(--bs-primary-rgb, 98, 126, 220)) !important;
+      background-image: linear-gradient(135deg, rgb(var(--bs-primary-rgb, 98, 126, 220)) 0%, #20a58a 100%) !important;
+      color: #fff !important;
+    }
+    #notificationSetupModal .modal-header > *,
+    #notificationSamplesModal .modal-header > * {
+      position: relative !important;
+      z-index: 3 !important;
+      visibility: visible !important;
+      opacity: 1 !important;
+    }
+    #notificationSetupModal .modal-header .modal-title,
+    #notificationSetupModal .modal-header .small,
+    #notificationSamplesModal .modal-header .modal-title,
+    #notificationSamplesModal .modal-header .small {
+      color: #fff !important;
+    }
+    #notificationSetupModal .notification-setup-main-tabs .nav-link {
+      color: var(--bs-secondary-color) !important;
+      background: transparent !important;
+    }
+    #notificationSetupModal .notification-setup-main-tabs {
+      display: inline-flex !important;
+      flex-wrap: nowrap !important;
+      justify-content: flex-start !important;
+      width: auto !important;
+      max-width: 100%;
+    }
+    #notificationSetupModal .notification-setup-main-tabs .nav-item {
+      flex: 0 0 auto !important;
+      width: auto !important;
+    }
+    #notificationSetupModal .notification-setup-main-tabs .nav-link {
+      display: inline-flex !important;
+      align-items: center;
+      width: auto !important;
+      min-width: 0 !important;
+      padding: .62rem .9rem !important;
+    }
+    #notificationSetupModal .notification-setup-main-tabs .nav-link.active {
+      color: #fff !important;
+      background-color: rgb(var(--bs-primary-rgb, 98, 126, 220)) !important;
+      background-image: linear-gradient(135deg, rgb(var(--bs-primary-rgb, 98, 126, 220)), #20a58a) !important;
+    }
   </style>
 </head>
 <body data-topbar-color="<?= h($_SESSION['theme.topbar'] ?? 'light') ?>"
@@ -335,6 +530,15 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
         </div>
 
         <div class="notification-admin-shell">
+          <section class="notification-admin-hero">
+            <div>
+              <span class="notification-admin-eyebrow"><i class="ri-shield-keyhole-line"></i><?= h(na('notification_admin_hero_eyebrow', 'CONTROLLED COMMUNICATION')) ?></span>
+              <h1><?= h(na('notification_admin_hero_title', 'Publish the right message to the right audience')) ?></h1>
+              <p><?= h(na('notification_admin_hero_text', 'Create, target and review system notifications from one governed administration workspace.')) ?></p>
+            </div>
+            <div class="notification-admin-hero-note"><i class="ri-error-warning-line"></i><div><strong><?= h(na('notification_admin_hero_note_title', 'Publication affects real users')) ?></strong><span><?= h(na('notification_admin_hero_note_text', 'Review the audience and preview before confirming a publication.')) ?></span></div></div>
+          </section>
+
           <div class="card notification-admin-card">
             <div class="card-body">
               <div class="d-flex flex-wrap justify-content-between align-items-start notification-admin-toolbar mb-3">
@@ -346,20 +550,29 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                   <a href="<?= h(base_url('pages/notification-templates.php')) ?>" class="btn btn-outline-primary">
                     <i class="ri-file-list-3-line me-1"></i><?= h(na('notification_admin_add_template', 'Add Template')) ?>
                   </a>
+                  <button type="button" class="btn btn-outline-success" id="notificationSamplesBtn" data-bs-toggle="modal" data-bs-target="#notificationSamplesModal">
+                    <i class="ri-code-box-line me-1"></i><?= h(na('notification_admin_samples_button', 'Samples')) ?>
+                  </button>
                   <button type="button" class="btn btn-primary" id="notificationSetupBtn">
                     <i class="ri-settings-3-line me-1"></i><?= h(na('notification_admin_setup_button', 'Setup Notification')) ?>
                   </button>
                 </div>
               </div>
 
+              <div class="notification-admin-filters" aria-label="<?= h(na('notification_admin_filter_label', 'Notification filters')) ?>">
+                <label><span><?= h(na('notification_admin_type', 'Type')) ?></span><select class="form-select form-select-sm" id="notificationAdminTypeFilter"><option value=""><?= h(na('notification_filter_all', 'All')) ?></option><option value="announcement">announcement</option><option value="reminder">reminder</option><option value="event">event</option><option value="workflow">workflow</option></select></label>
+                <label><span><?= h(na('notification_admin_priority', 'Priority')) ?></span><select class="form-select form-select-sm" id="notificationAdminPriorityFilter"><option value=""><?= h(na('notification_filter_all', 'All')) ?></option><option value="low">low</option><option value="normal">normal</option><option value="high">high</option><option value="urgent">urgent</option></select></label>
+                <label><span><?= h(na('notification_admin_status', 'Status')) ?></span><select class="form-select form-select-sm" id="notificationAdminStatusFilter"><option value="all"><?= h(na('notification_filter_all', 'All')) ?></option><option value="active"><?= h(na('notification_admin_stat_active', 'Active')) ?></option><option value="inactive"><?= h(na('notification_admin_inactive', 'Inactive')) ?></option></select></label>
+              </div>
+
               <div class="table-responsive">
-                <table class="table table-striped notification-admin-table" id="notificationAdminRecentTable">
+                <table class="table table-striped notification-admin-table" id="notificationAdminRecentTable" data-list-url="<?= h(base_url('ajax/notification-admin-list.php')) ?>">
                   <thead>
                     <tr>
                       <th class="text-center" style="width:56px;">#</th>
                       <th><?= h(na('notification_admin_col_title', 'Title')) ?></th>
                       <th><?= h(na('notification_admin_col_type', 'Type')) ?></th>
-                      <th>Priority</th>
+                      <th><?= h(na('notification_admin_priority', 'Priority')) ?></th>
                       <th><?= h(na('notification_admin_col_audience', 'Audience')) ?></th>
                       <th><?= h(na('notification_admin_requires_action', 'Requires user action')) ?></th>
                       <th><?= h(na('notification_admin_col_date', 'Date')) ?></th>
@@ -377,9 +590,9 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                         <td><span class="badge bg-secondary-subtle text-secondary"><?= h((string)$row['f_priority']) ?></span></td>
                         <td>
                           <span class="fw-semibold"><?= h((string)($row['audience_summary'] ?? 'No audience')) ?></span>
-                          <div class="text-muted small">Jumlah target: <?= (int)$row['audience_count'] ?></div>
+                          <div class="text-muted small"><?= h(na('notification_admin_target_count', 'Target count')) ?>: <?= (int)$row['audience_count'] ?></div>
                         </td>
-                        <td><?= ((int)$row['f_requiresAction'] === 1) ? '<span class="badge bg-warning-subtle text-warning">Yes</span>' : '<span class="badge bg-light text-dark">No</span>' ?></td>
+                        <td><?= ((int)$row['f_requiresAction'] === 1) ? '<span class="badge bg-warning-subtle text-warning">' . h(na('common_yes', 'Yes')) . '</span>' : '<span class="badge bg-light text-dark">' . h(na('common_no', 'No')) . '</span>' ?></td>
                         <td><small><?= h((string)$row['f_insertdt']) ?></small></td>
                       </tr>
                     <?php endforeach; ?>
@@ -391,7 +604,7 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
         </div>
 
         <div class="modal fade" id="notificationSetupModal" tabindex="-1" aria-hidden="true">
-          <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
             <div class="modal-content">
               <form id="notificationAdminForm" data-publish-url="<?= h(base_url('ajax/notification-admin-publish.php')) ?>">
                 <div class="modal-header">
@@ -399,14 +612,14 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                     <h5 class="modal-title"><?= h(na('notification_admin_composer_title', 'Publish Notification')) ?></h5>
                     <div class="small opacity-75"><?= h(na('notification_admin_composer_subtitle', 'Create in-app announcements, reminders, or workflow notifications for selected audiences.')) ?></div>
                   </div>
-                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                  <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?= h(na('common_close', 'Close')) ?>"></button>
                 </div>
                 <div class="modal-body">
                   <div class="alert d-none mb-3" id="notificationAdminAlert"></div>
                   <ul class="nav nav-pills notification-setup-main-tabs mb-3" id="notificationSetupTabs" role="tablist">
                     <li class="nav-item" role="presentation">
                       <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#notificationSetupTab" type="button" role="tab">
-                        <i class="ri-settings-3-line me-1"></i>Setup Notification
+                        <i class="ri-settings-3-line me-1"></i><?= h(na('notification_admin_tab_setup', 'Setup Notification')) ?>
                       </button>
                     </li>
                     <li class="nav-item" role="presentation">
@@ -421,16 +634,16 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                       <div class="notification-form-surface">
                       <ul class="nav nav-tabs notification-setup-subtabs" role="tablist">
                         <li class="nav-item" role="presentation">
-                          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#naBasicTab" type="button" role="tab">Basic</button>
+                          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#naBasicTab" type="button" role="tab"><?= h(na('notification_admin_tab_basic', 'Basic')) ?></button>
                         </li>
                         <li class="nav-item" role="presentation">
-                          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#naContentTab" type="button" role="tab">Content</button>
+                          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#naContentTab" type="button" role="tab"><?= h(na('notification_admin_tab_content', 'Content')) ?></button>
                         </li>
                         <li class="nav-item" role="presentation">
-                          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#naAudienceTab" type="button" role="tab">Audience</button>
+                          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#naAudienceTab" type="button" role="tab"><?= h(na('notification_admin_tab_audience', 'Audience')) ?></button>
                         </li>
                         <li class="nav-item" role="presentation">
-                          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#naActionTab" type="button" role="tab">Action & Schedule</button>
+                          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#naActionTab" type="button" role="tab"><?= h(na('notification_admin_tab_action', 'Action & Schedule')) ?></button>
                         </li>
                       </ul>
 
@@ -439,7 +652,7 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                           <div class="row g-3">
                             <div class="col-md-6">
                               <label class="form-label" for="na_event_code"><?= h(na('notification_admin_event_code', 'Event Code')) ?></label>
-                              <input type="text" class="form-control" id="na_event_code" name="event_code" placeholder="admin.announcement">
+                              <input type="text" class="form-control" id="na_event_code" name="event_code" maxlength="100" placeholder="admin.announcement">
                               <span class="notification-admin-field-help"><?= h(na('notification_admin_help_event_code', 'Kod rujukan dalaman untuk jejak notifikasi. Jika kosong, sistem akan jana automatik.')) ?></span>
                             </div>
                             <div class="col-md-6">
@@ -487,7 +700,7 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                             </div>
                             <div class="col-md-8">
                               <label class="form-label" for="na_dedupe_key"><?= h(na('notification_admin_dedupe_key', 'Dedupe Key')) ?></label>
-                              <input type="text" class="form-control" id="na_dedupe_key" name="dedupe_key" placeholder="admin.announcement.2026-05">
+                              <input type="text" class="form-control" id="na_dedupe_key" name="dedupe_key" maxlength="190" placeholder="admin.announcement.2026-05">
                               <span class="notification-admin-field-help"><?= h(na('notification_admin_help_dedupe_key', 'Guna kunci unik jika notifikasi yang sama tidak patut digandakan. Contoh: password.reminder.2026-05.')) ?></span>
                             </div>
                             <div class="col-md-4">
@@ -506,22 +719,22 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                           <div class="row g-3">
                             <div class="col-md-6">
                               <label class="form-label" for="na_title_ms"><?= h(na('notification_admin_title_ms', 'Title MS')) ?> <span class="text-danger">*</span></label>
-                              <input type="text" class="form-control" id="na_title_ms" name="title_ms">
+                              <input type="text" class="form-control" id="na_title_ms" name="title_ms" maxlength="255" required>
                               <span class="notification-admin-field-help"><?= h(na('notification_admin_help_title_ms', 'Tajuk utama yang akan dilihat oleh pengguna dalam bahasa Melayu. Field ini wajib diisi.')) ?></span>
                             </div>
                             <div class="col-md-6">
                               <label class="form-label" for="na_title_en"><?= h(na('notification_admin_title_en', 'Title EN')) ?></label>
-                              <input type="text" class="form-control" id="na_title_en" name="title_en">
+                              <input type="text" class="form-control" id="na_title_en" name="title_en" maxlength="255">
                               <span class="notification-admin-field-help"><?= h(na('notification_admin_help_title_en', 'Tajuk versi English. Jika kosong, sistem masih boleh papar tajuk Melayu.')) ?></span>
                             </div>
                             <div class="col-md-6">
                               <label class="form-label" for="na_body_ms"><?= h(na('notification_admin_body_ms', 'Body MS')) ?></label>
-                              <textarea class="form-control" id="na_body_ms" name="body_ms" rows="6"></textarea>
+                              <textarea class="form-control" id="na_body_ms" name="body_ms" rows="6" maxlength="10000"></textarea>
                               <span class="notification-admin-field-help"><?= h(na('notification_admin_help_body_ms', 'Isi mesej ringkas dan jelas. Elakkan arahan terlalu panjang supaya mudah dibaca dalam panel notifikasi.')) ?></span>
                             </div>
                             <div class="col-md-6">
                               <label class="form-label" for="na_body_en"><?= h(na('notification_admin_body_en', 'Body EN')) ?></label>
-                              <textarea class="form-control" id="na_body_en" name="body_en" rows="6"></textarea>
+                              <textarea class="form-control" id="na_body_en" name="body_en" rows="6" maxlength="10000"></textarea>
                               <span class="notification-admin-field-help"><?= h(na('notification_admin_help_body_en', 'Isi mesej versi English jika sistem digunakan dalam mod English.')) ?></span>
                             </div>
                           </div>
@@ -545,7 +758,7 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                             </div>
                             <div class="col-md-8">
                               <label class="form-label" for="na_audience_value"><?= h(na('notification_admin_audience_value', 'Audience Value')) ?></label>
-                              <textarea class="form-control" id="na_audience_value" name="audience_value" rows="3" placeholder="<?= h(na('notification_admin_audience_help', 'Use comma or new line for multiple values. Leave blank for ALL.')) ?>" data-sample-owned="1"></textarea>
+                              <textarea class="form-control" id="na_audience_value" name="audience_value" rows="3" maxlength="75500" placeholder="<?= h(na('notification_admin_audience_help', 'Use comma or new line for multiple values. Leave blank for ALL.')) ?>" data-sample-owned="1"></textarea>
                               <div class="notification-admin-field-help" id="naAudienceHelp"><?= h(na('notification_admin_audience_all_help', 'ALL does not require a value.')) ?></div>
                             </div>
                             <div class="col-md-6">
@@ -577,7 +790,7 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
                           <div class="row g-3">
                             <div class="col-md-6">
                               <label class="form-label" for="na_action_url"><?= h(na('notification_admin_action_url', 'Action URL')) ?></label>
-                              <input type="text" class="form-control" id="na_action_url" name="action_url" placeholder="pages/notifications.php">
+                              <input type="text" class="form-control" id="na_action_url" name="action_url" maxlength="500" placeholder="pages/notifications.php">
                               <span class="notification-admin-field-help"><?= h(na('notification_admin_help_action_url', 'Halaman yang akan dibuka bila pengguna klik tindakan. Guna path dalaman sahaja, contoh pages/profile.php.')) ?></span>
                             </div>
                             <div class="col-md-3">
@@ -664,6 +877,342 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
             </div>
           </div>
         </div>
+
+        <div class="modal fade" id="notificationSamplesModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+            <div class="modal-content">
+              <div class="modal-header">
+                <div>
+                  <h5 class="modal-title"><?= h(na('notification_admin_samples_title', 'Notification Developer Samples')) ?></h5>
+                  <div class="small opacity-75"><?= h(na('notification_admin_samples_subtitle', 'Copy standard workflow notification snippets for module integration.')) ?></div>
+                </div>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="<?= h(na('common_close', 'Close')) ?>"></button>
+              </div>
+              <div class="modal-body">
+                <div class="notification-samples-layout">
+                  <div class="nav flex-column nav-pills notification-samples-tabs" role="tablist" aria-orientation="vertical">
+                    <?php
+                      $notificationSampleIcons = [
+                          'submit' => 'ri-send-plane-line',
+                          'next-step' => 'ri-arrow-right-circle-line',
+                          'approved' => 'ri-checkbox-circle-line',
+                          'rejected' => 'ri-close-circle-line',
+                          'parallel' => 'ri-team-line',
+                          'wrapper' => 'ri-file-code-line',
+                      ];
+                      $sampleIndex = 0;
+                    ?>
+                    <?php foreach ($notificationDeveloperSamples as $sampleKey => $sample): ?>
+                      <?php $samplePaneId = 'sample' . str_replace(' ', '', ucwords(str_replace('-', ' ', (string)$sampleKey))); ?>
+                      <button class="nav-link <?= $sampleIndex === 0 ? 'active' : '' ?>" data-bs-toggle="pill" data-bs-target="#<?= h($samplePaneId) ?>" type="button" role="tab">
+                        <i class="<?= h($notificationSampleIcons[$sampleKey] ?? 'ri-file-code-line') ?>"></i><?= h((string)($sample['tab'] ?? $sample['title'] ?? na('notification_admin_sample', 'Sample'))) ?>
+                      </button>
+                      <?php $sampleIndex++; ?>
+                    <?php endforeach; ?>
+                  </div>
+
+                  <div class="tab-content">
+                    <?php $sampleIndex = 0; ?>
+                    <?php foreach ($notificationDeveloperSamples as $sampleKey => $sample): ?>
+                      <?php $samplePaneId = 'sample' . str_replace(' ', '', ucwords(str_replace('-', ' ', (string)$sampleKey))); ?>
+                      <?php $codeId = (string)($sample['code_id'] ?? ('codeSample' . $samplePaneId)); ?>
+                      <div class="tab-pane fade <?= $sampleIndex === 0 ? 'show active' : '' ?>" id="<?= h($samplePaneId) ?>" role="tabpanel">
+                        <div class="notification-sample-panel">
+                          <div class="notification-sample-header">
+                            <div>
+                              <h6><?= h((string)($sample['title'] ?? na('notification_admin_sample', 'Notification Sample'))) ?></h6>
+                              <?php if (!empty($sample['description'])): ?>
+                                <p><?= h((string)$sample['description']) ?></p>
+                              <?php endif; ?>
+                            </div>
+                            <button type="button" class="btn btn-sm btn-outline-success notification-copy-sample" data-copy-target="<?= h($codeId) ?>">
+                              <i class="ri-file-copy-line me-1"></i><?= h(na('notification_admin_copy', 'Copy')) ?>
+                            </button>
+                          </div>
+<pre class="notification-code-block"><code id="<?= h($codeId) ?>"><?= h((string)($sample['code'] ?? '')) ?></code></pre>
+                        </div>
+                      </div>
+                      <?php $sampleIndex++; ?>
+                    <?php endforeach; ?>
+                    <?php if (false): ?>
+                    <div class="tab-pane fade show active" id="sampleSubmit" role="tabpanel">
+                      <div class="notification-sample-panel">
+                        <div class="notification-sample-header">
+                          <div>
+                            <h6>Submit Request</h6>
+                            <p>Guna selepas rekod permohonan berjaya disimpan dan perlu dihantar kepada pegawai pertama.</p>
+                          </div>
+                          <button type="button" class="btn btn-sm btn-outline-success notification-copy-sample" data-copy-target="codeSampleSubmit">
+                            <i class="ri-file-copy-line me-1"></i>Copy
+                          </button>
+                        </div>
+<pre class="notification-code-block"><code id="codeSampleSubmit">&lt;?php
+require_once __DIR__ . '/../classes/NotificationWorkflowService.php';
+
+function notifyPermohonanSubmitted(
+    int $permohonanId,
+    string $noRujukan,
+    array $officerLoginIds
+): void {
+    NotificationWorkflowService::default()-&gt;publishTask([
+        'event_code' =&gt; 'permohonan.submitted.pending_officer',
+        'module_code' =&gt; 'PERMOHONAN',
+        'source_type' =&gt; 'permohonan',
+        'source_id' =&gt; (string)$permohonanId,
+        'title_ms' =&gt; 'Permohonan Baru Menunggu Semakan',
+        'body_ms' =&gt; 'Permohonan ' . $noRujukan . ' memerlukan semakan pegawai.',
+        'action_url' =&gt; 'pages/permohonan-review.php?id=' . urlencode((string)$permohonanId),
+        'action_label_ms' =&gt; 'Semak Permohonan',
+        'due_at' =&gt; date('Y-m-d H:i:s', strtotime('+3 days')),
+        'dedupe_key' =&gt; 'permohonan:' . $permohonanId . ':officer_review',
+        'audience' =&gt; [
+            'resolved_login_ids' =&gt; $officerLoginIds,
+        ],
+    ], [
+        'dedupe' =&gt; 'update',
+    ]);
+}</code></pre>
+                      </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="sampleNextStep" role="tabpanel">
+                      <div class="notification-sample-panel">
+                        <div class="notification-sample-header">
+                          <div>
+                            <h6>Move To Next Approval</h6>
+                            <p>Tutup task lama dahulu, kemudian publish task baru kepada role/pegawai seterusnya.</p>
+                          </div>
+                          <button type="button" class="btn btn-sm btn-outline-success notification-copy-sample" data-copy-target="codeSampleNextStep">
+                            <i class="ri-file-copy-line me-1"></i>Copy
+                          </button>
+                        </div>
+<pre class="notification-code-block"><code id="codeSampleNextStep">&lt;?php
+require_once __DIR__ . '/../classes/NotificationWorkflowService.php';
+
+function notifyPermohonanMoveToHod(
+    int $permohonanId,
+    string $noRujukan,
+    array $hodLoginIds
+): void {
+    $notification = NotificationWorkflowService::default();
+
+    $notification-&gt;completeSourceStep(
+        'permohonan',
+        (string)$permohonanId,
+        'permohonan.submitted.pending_officer'
+    );
+
+    $notification-&gt;publishTask([
+        'event_code' =&gt; 'permohonan.reviewed.pending_hod',
+        'module_code' =&gt; 'PERMOHONAN',
+        'source_type' =&gt; 'permohonan',
+        'source_id' =&gt; (string)$permohonanId,
+        'title_ms' =&gt; 'Permohonan Menunggu Pengesahan Ketua Jabatan',
+        'body_ms' =&gt; 'Permohonan ' . $noRujukan . ' memerlukan pengesahan Ketua Jabatan.',
+        'action_url' =&gt; 'pages/permohonan-hod.php?id=' . urlencode((string)$permohonanId),
+        'action_label_ms' =&gt; 'Sahkan Permohonan',
+        'due_at' =&gt; date('Y-m-d H:i:s', strtotime('+3 days')),
+        'dedupe_key' =&gt; 'permohonan:' . $permohonanId . ':hod_approval',
+        'audience' =&gt; [
+            'resolved_login_ids' =&gt; $hodLoginIds,
+        ],
+    ], [
+        'dedupe' =&gt; 'update',
+    ]);
+}</code></pre>
+                      </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="sampleApproved" role="tabpanel">
+                      <div class="notification-sample-panel">
+                        <div class="notification-sample-header">
+                          <div>
+                            <h6>Final Approved</h6>
+                            <p>Tutup task approval terakhir dan hantar info notification kepada pemohon.</p>
+                          </div>
+                          <button type="button" class="btn btn-sm btn-outline-success notification-copy-sample" data-copy-target="codeSampleApproved">
+                            <i class="ri-file-copy-line me-1"></i>Copy
+                          </button>
+                        </div>
+<pre class="notification-code-block"><code id="codeSampleApproved">&lt;?php
+require_once __DIR__ . '/../classes/NotificationWorkflowService.php';
+
+function notifyPermohonanApproved(
+    int $permohonanId,
+    string $noRujukan,
+    string $pemohonLoginId
+): void {
+    $notification = NotificationWorkflowService::default();
+
+    $notification-&gt;completeSourceStep(
+        'permohonan',
+        (string)$permohonanId,
+        'permohonan.reviewed.pending_hod'
+    );
+
+    $notification-&gt;publishInfo([
+        'event_code' =&gt; 'permohonan.approved.final',
+        'module_code' =&gt; 'PERMOHONAN',
+        'source_type' =&gt; 'permohonan',
+        'source_id' =&gt; (string)$permohonanId,
+        'title_ms' =&gt; 'Permohonan Diluluskan',
+        'body_ms' =&gt; 'Permohonan ' . $noRujukan . ' telah diluluskan.',
+        'action_url' =&gt; 'pages/permohonan-view.php?id=' . urlencode((string)$permohonanId),
+        'action_label_ms' =&gt; 'Lihat Permohonan',
+        'dedupe_key' =&gt; 'permohonan:' . $permohonanId . ':approved',
+        'audience' =&gt; [
+            'resolved_login_ids' =&gt; [$pemohonLoginId],
+        ],
+    ], [
+        'dedupe' =&gt; 'skip',
+    ]);
+}</code></pre>
+                      </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="sampleRejected" role="tabpanel">
+                      <div class="notification-sample-panel">
+                        <div class="notification-sample-header">
+                          <div>
+                            <h6>Rejected / Cancelled</h6>
+                            <p>Cancel semua task pending untuk source yang sama dan maklumkan keputusan kepada pemohon.</p>
+                          </div>
+                          <button type="button" class="btn btn-sm btn-outline-success notification-copy-sample" data-copy-target="codeSampleRejected">
+                            <i class="ri-file-copy-line me-1"></i>Copy
+                          </button>
+                        </div>
+<pre class="notification-code-block"><code id="codeSampleRejected">&lt;?php
+require_once __DIR__ . '/../classes/NotificationWorkflowService.php';
+
+function notifyPermohonanRejected(
+    int $permohonanId,
+    string $noRujukan,
+    string $pemohonLoginId
+): void {
+    $notification = NotificationWorkflowService::default();
+
+    $notification-&gt;cancelSource('permohonan', (string)$permohonanId);
+
+    $notification-&gt;publishInfo([
+        'event_code' =&gt; 'permohonan.rejected.final',
+        'module_code' =&gt; 'PERMOHONAN',
+        'source_type' =&gt; 'permohonan',
+        'source_id' =&gt; (string)$permohonanId,
+        'severity' =&gt; 'danger',
+        'priority' =&gt; 'normal',
+        'title_ms' =&gt; 'Permohonan Tidak Diluluskan',
+        'body_ms' =&gt; 'Permohonan ' . $noRujukan . ' tidak diluluskan.',
+        'action_url' =&gt; 'pages/permohonan-view.php?id=' . urlencode((string)$permohonanId),
+        'action_label_ms' =&gt; 'Lihat Permohonan',
+        'dedupe_key' =&gt; 'permohonan:' . $permohonanId . ':rejected',
+        'audience' =&gt; [
+            'resolved_login_ids' =&gt; [$pemohonLoginId],
+        ],
+    ], [
+        'dedupe' =&gt; 'skip',
+    ]);
+}</code></pre>
+                      </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="sampleParallel" role="tabpanel">
+                      <div class="notification-sample-panel">
+                        <div class="notification-sample-header">
+                          <div>
+                            <h6>Parallel Approval</h6>
+                            <p>Guna bila beberapa approver perlu terima task serentak. Business rule tetap ditentukan module.</p>
+                          </div>
+                          <button type="button" class="btn btn-sm btn-outline-success notification-copy-sample" data-copy-target="codeSampleParallel">
+                            <i class="ri-file-copy-line me-1"></i>Copy
+                          </button>
+                        </div>
+<pre class="notification-code-block"><code id="codeSampleParallel">&lt;?php
+require_once __DIR__ . '/../classes/NotificationWorkflowService.php';
+
+NotificationWorkflowService::default()-&gt;publishTask([
+    'event_code' =&gt; 'permohonan.pending.parallel_review',
+    'module_code' =&gt; 'PERMOHONAN',
+    'source_type' =&gt; 'permohonan',
+    'source_id' =&gt; (string)$permohonanId,
+    'title_ms' =&gt; 'Permohonan Memerlukan Semakan Bersama',
+    'body_ms' =&gt; 'Permohonan ' . $noRujukan . ' memerlukan semakan beberapa pegawai.',
+    'action_url' =&gt; 'pages/permohonan-review.php?id=' . urlencode((string)$permohonanId),
+    'action_label_ms' =&gt; 'Semak',
+    'dedupe_key' =&gt; 'permohonan:' . $permohonanId . ':parallel_review',
+    'audience' =&gt; [
+        'resolved_login_ids' =&gt; $approverLoginIds,
+    ],
+], [
+    'dedupe' =&gt; 'update',
+]);
+
+// Bila business condition selesai, tutup task ini.
+NotificationWorkflowService::default()-&gt;completeSourceStep(
+    'permohonan',
+    (string)$permohonanId,
+    'permohonan.pending.parallel_review'
+);</code></pre>
+                      </div>
+                    </div>
+
+                    <div class="tab-pane fade" id="sampleWrapper" role="tabpanel">
+                      <div class="notification-sample-panel">
+                        <div class="notification-sample-header">
+                          <div>
+                            <h6>Module Wrapper</h6>
+                            <p>Recommended: controller panggil wrapper module, bukan bina payload notification panjang di banyak tempat.</p>
+                          </div>
+                          <button type="button" class="btn btn-sm btn-outline-success notification-copy-sample" data-copy-target="codeSampleWrapper">
+                            <i class="ri-file-copy-line me-1"></i>Copy
+                          </button>
+                        </div>
+<pre class="notification-code-block"><code id="codeSampleWrapper">&lt;?php
+require_once __DIR__ . '/NotificationWorkflowService.php';
+
+final class PermohonanNotification
+{
+    public static function submitted(int $id, string $refNo, array $officerLoginIds): void
+    {
+        NotificationWorkflowService::default()-&gt;publishTask([
+            'event_code' =&gt; 'permohonan.submitted.pending_officer',
+            'module_code' =&gt; 'PERMOHONAN',
+            'source_type' =&gt; 'permohonan',
+            'source_id' =&gt; (string)$id,
+            'title_ms' =&gt; 'Permohonan Baru Menunggu Semakan',
+            'body_ms' =&gt; 'Permohonan ' . $refNo . ' memerlukan semakan pegawai.',
+            'action_url' =&gt; 'pages/permohonan-review.php?id=' . urlencode((string)$id),
+            'action_label_ms' =&gt; 'Semak Permohonan',
+            'dedupe_key' =&gt; 'permohonan:' . $id . ':officer_review',
+            'audience' =&gt; ['resolved_login_ids' =&gt; $officerLoginIds],
+        ], ['dedupe' =&gt; 'update']);
+    }
+
+    public static function approved(int $id, string $refNo, string $pemohonLoginId): void
+    {
+        $notification = NotificationWorkflowService::default();
+        $notification-&gt;cancelSource('permohonan', (string)$id);
+        $notification-&gt;publishInfo([
+            'event_code' =&gt; 'permohonan.approved.final',
+            'module_code' =&gt; 'PERMOHONAN',
+            'source_type' =&gt; 'permohonan',
+            'source_id' =&gt; (string)$id,
+            'title_ms' =&gt; 'Permohonan Diluluskan',
+            'body_ms' =&gt; 'Permohonan ' . $refNo . ' telah diluluskan.',
+            'action_url' =&gt; 'pages/permohonan-view.php?id=' . urlencode((string)$id),
+            'dedupe_key' =&gt; 'permohonan:' . $id . ':approved',
+            'audience' =&gt; ['resolved_login_ids' =&gt; [$pemohonLoginId]],
+        ], ['dedupe' =&gt; 'skip']);
+    }
+}</code></pre>
+                      </div>
+                    </div>
+                    <?php endif; ?>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
     <?php include __DIR__ . '/../includes/footer.php'; ?>
@@ -708,13 +1257,13 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
     };
     const audiencePlaceholders = {
       ALL: <?= json_encode(na('notification_admin_audience_all_help', 'ALL does not require a value.'), JSON_UNESCAPED_UNICODE) ?>,
-      CATEGORY_USER: 'Contoh: STAF',
-      GROUP_ID: 'Contoh: ' + <?= json_encode($firstGroupId, JSON_UNESCAPED_UNICODE) ?>,
-      LOGIN_ID: 'Contoh: ' + <?= json_encode($currentLoginId, JSON_UNESCAPED_UNICODE) ?>,
-      RESOLVED_LOGIN_ID: 'Contoh: ' + <?= json_encode($currentLoginId, JSON_UNESCAPED_UNICODE) ?> + ', user02',
-      ROLE_ID: 'Contoh: ' + <?= json_encode($firstGroupId, JSON_UNESCAPED_UNICODE) ?>,
-      DEPARTMENT_ID: 'Contoh: JTMK',
-      PERMISSION: 'Contoh: notification.manage'
+      CATEGORY_USER: <?= json_encode(na('notification_admin_example_prefix', 'Example:') . ' STAF', JSON_UNESCAPED_UNICODE) ?>,
+      GROUP_ID: <?= json_encode(na('notification_admin_example_prefix', 'Example:') . ' ' . $firstGroupId, JSON_UNESCAPED_UNICODE) ?>,
+      LOGIN_ID: <?= json_encode(na('notification_admin_example_prefix', 'Example:') . ' ' . $currentLoginId, JSON_UNESCAPED_UNICODE) ?>,
+      RESOLVED_LOGIN_ID: <?= json_encode(na('notification_admin_example_prefix', 'Example:') . ' ' . $currentLoginId . ', user02', JSON_UNESCAPED_UNICODE) ?>,
+      ROLE_ID: <?= json_encode(na('notification_admin_example_prefix', 'Example:') . ' ' . $firstGroupId, JSON_UNESCAPED_UNICODE) ?>,
+      DEPARTMENT_ID: <?= json_encode(na('notification_admin_example_prefix', 'Example:') . ' JTMK', JSON_UNESCAPED_UNICODE) ?>,
+      PERMISSION: <?= json_encode(na('notification_admin_example_prefix', 'Example:') . ' notification.manage', JSON_UNESCAPED_UNICODE) ?>
     };
     let recentDt = null;
 
@@ -733,6 +1282,49 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
       const div = document.createElement('div');
       div.textContent = value == null ? '' : String(value);
       return div.innerHTML;
+    }
+
+    function fallbackCopy(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'readonly');
+      textarea.style.position = 'fixed';
+      textarea.style.left = '-9999px';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } finally {
+        textarea.remove();
+      }
+    }
+
+    function copySampleCode(button) {
+      const targetId = button ? button.getAttribute('data-copy-target') : '';
+      const codeEl = targetId ? document.getElementById(targetId) : null;
+      const code = codeEl ? (codeEl.textContent || '').trim() : '';
+      if (!code) return;
+
+      const original = button.innerHTML;
+      const markCopied = function () {
+        button.innerHTML = '<i class="ri-check-line me-1"></i>' + <?= json_encode(na('notification_admin_copied', 'Copied'), JSON_UNESCAPED_UNICODE) ?>;
+        button.disabled = true;
+        setTimeout(function () {
+          button.innerHTML = original;
+          button.disabled = false;
+        }, 1300);
+      };
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(markCopied).catch(function () {
+          fallbackCopy(code);
+          markCopied();
+        });
+        return;
+      }
+
+      fallbackCopy(code);
+      markCopied();
     }
 
     function readForm() {
@@ -828,41 +1420,36 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
 
     function initRecentTable() {
       if (!window.jQuery || !jQuery.fn || !jQuery.fn.DataTable) return;
-
-      if (jQuery.fn.dataTable.isDataTable('#notificationAdminRecentTable')) {
-        jQuery('#notificationAdminRecentTable').DataTable().destroy();
-      }
-
-      const dtOptions = (window.DataTableStandard && typeof window.DataTableStandard.options === 'function')
-        ? window.DataTableStandard.options({
-            pageLength: 10,
-            lengthMenu: [10, 25, 50, 100, 200],
-            order: [[6, 'desc']],
-            columnDefs: [
-              { targets: 0, orderable: false, searchable: false, width: 56 }
-            ],
-            language: {
-              lengthMenu: "<?= h(__('userList_dt_length_menu')) ?>",
-              search: "",
-              info: "<?= h(__('userList_dt_info')) ?>",
-              infoEmpty: "<?= h(__('userList_dt_info_empty')) ?>",
-              emptyTable: "<?= h(__('userList_no_records')) ?>",
-              paginate: { previous: "<?= h(__('userList_dt_paginate_prev')) ?>", next: "<?= h(__('userList_dt_paginate_next')) ?>"},
-              zeroRecords: "<?= h(__('userList_dt_zero_records')) ?>"
-            },
-            rowCallback: function (row, data, displayIndex) {
-              const info = this.api().page.info();
-              jQuery('td:eq(0)', row).text(info.start + displayIndex + 1);
-            }
-          })
-        : {
-            pageLength: 10,
-            lengthMenu: [10, 25, 50, 100, 200],
-            order: [[6, 'desc']],
-            columnDefs: [{ targets: 0, orderable: false, searchable: false, width: 56 }]
-          };
-
-      recentDt = jQuery('#notificationAdminRecentTable').DataTable(dtOptions);
+      if (jQuery.fn.dataTable.isDataTable('#notificationAdminRecentTable')) return;
+      const table = document.getElementById('notificationAdminRecentTable');
+      const options = {
+        processing: true,
+        serverSide: true,
+        searching: true,
+        ordering: false,
+        pageLength: 10,
+        lengthMenu: [10, 25, 50, 100],
+        ajax: function (request, callback) {
+          fetch(table.dataset.listUrl, {
+            method: 'POST', noLoader: true, credentials: 'same-origin',
+            headers: { 'Accept':'application/json','Content-Type':'application/json','X-CSRF-Token':csrfToken,'X-No-Loader':'1' },
+            body: JSON.stringify({ draw:request.draw,start:request.start,length:request.length,search:(request.search || {}).value || '',type:document.getElementById('notificationAdminTypeFilter').value,priority:document.getElementById('notificationAdminPriorityFilter').value,status:document.getElementById('notificationAdminStatusFilter').value })
+          }).then(function (response) { return response.json().then(function (body) { if (!response.ok || body.success === false) throw new Error(body.message || <?= json_encode(na('notification_admin_list_failed', 'Unable to load notifications.'), JSON_UNESCAPED_UNICODE) ?>); return body.data || body; }); })
+            .then(function (data) { callback({ draw:data.draw,recordsTotal:data.recordsTotal,recordsFiltered:data.recordsFiltered,data:data.items || [] }); })
+            .catch(function (error) { callback({ draw:request.draw,recordsTotal:0,recordsFiltered:0,data:[] }); if (window.Swal) window.Swal.fire({toast:true,position:'top-end',icon:'error',title:error.message,showConfirmButton:false,timer:3000}); });
+        },
+        columns: [
+          { data:null,render:function (_data,_type,_row,meta) { return meta.settings._iDisplayStart + meta.row + 1; },className:'text-center' },
+          { data:null,render:function (_data,_type,row) { return '<div class="fw-semibold">'+escapeHtml(row.f_title_ms || '')+'</div><small class="text-muted">'+escapeHtml(row.f_eventCode || '')+'</small>'; } },
+          { data:'f_type',render:function (value) { return '<span class="badge bg-light text-dark">'+escapeHtml(value || '')+'</span>'; } },
+          { data:'f_priority',render:function (value) { return '<span class="badge bg-secondary-subtle text-secondary">'+escapeHtml(value || '')+'</span>'; } },
+          { data:null,render:function (_data,_type,row) { return '<span class="fw-semibold">'+escapeHtml(row.audience_summary || <?= json_encode(na('notification_admin_no_audience', 'No audience'), JSON_UNESCAPED_UNICODE) ?>)+'</span><div class="text-muted small">'+<?= json_encode(na('notification_admin_target_count', 'Target count'), JSON_UNESCAPED_UNICODE) ?>+': '+Number(row.audience_count || 0)+'</div>'; } },
+          { data:'f_requiresAction',render:function (value) { return Number(value) === 1 ? '<span class="badge bg-warning-subtle text-warning">'+<?= json_encode(na('common_yes', 'Yes'), JSON_UNESCAPED_UNICODE) ?>+'</span>' : '<span class="badge bg-light text-dark">'+<?= json_encode(na('common_no', 'No'), JSON_UNESCAPED_UNICODE) ?>+'</span>'; } },
+          { data:'f_insertdt',render:function (value) { return '<small>'+escapeHtml(value || '')+'</small>'; } }
+        ],
+        language: { lengthMenu:"<?= h(__('userList_dt_length_menu')) ?>",search:"",info:"<?= h(__('userList_dt_info')) ?>",infoEmpty:"<?= h(__('userList_dt_info_empty')) ?>",emptyTable:"<?= h(__('userList_no_records')) ?>",paginate:{previous:"<?= h(__('userList_dt_paginate_prev')) ?>",next:"<?= h(__('userList_dt_paginate_next')) ?>"},zeroRecords:"<?= h(__('userList_dt_zero_records')) ?>" }
+      };
+      recentDt = jQuery('#notificationAdminRecentTable').DataTable(window.DataTableStandard && typeof window.DataTableStandard.options === 'function' ? window.DataTableStandard.options(options) : options);
       if (window.DataTableStandard && typeof window.DataTableStandard.decorate === 'function') {
         window.DataTableStandard.decorate('#notificationAdminRecentTable', {
           searchPlaceholder: <?= json_encode(na('userList_dt_search_label', 'Search'), JSON_UNESCAPED_UNICODE) ?>
@@ -872,9 +1459,11 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
       jQuery('#notificationAdminRecentTable_length label').addClass('mb-0');
       jQuery('#notificationAdminRecentTable_wrapper .dt-top-left').addClass('d-flex align-items-center gap-2 flex-nowrap');
       jQuery('#notificationAdminRecentTable_wrapper .dt-top-right').addClass('align-items-center gap-2 flex-nowrap');
+      ['notificationAdminTypeFilter','notificationAdminPriorityFilter','notificationAdminStatusFilter'].forEach(function (id) { document.getElementById(id).addEventListener('change', function () { recentDt.ajax.reload(); }); });
     }
 
     function renderRecent(rows) {
+      if (recentDt && recentDt.ajax) { recentDt.ajax.reload(null, false); return; }
       const body = document.getElementById('notificationAdminRecentBody');
       if (recentDt && window.jQuery && jQuery.fn.dataTable.isDataTable('#notificationAdminRecentTable')) {
         recentDt.destroy();
@@ -882,20 +1471,42 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
       }
       body.innerHTML = (rows || []).map(function (row, index) {
         const requiresAction = Number(row.f_requiresAction || 0) === 1
-          ? '<span class="badge bg-warning-subtle text-warning">Yes</span>'
-          : '<span class="badge bg-light text-dark">No</span>';
+          ? '<span class="badge bg-warning-subtle text-warning">' + <?= json_encode(na('common_yes', 'Yes'), JSON_UNESCAPED_UNICODE) ?> + '</span>'
+          : '<span class="badge bg-light text-dark">' + <?= json_encode(na('common_no', 'No'), JSON_UNESCAPED_UNICODE) ?> + '</span>';
 
         return '<tr>' +
           '<td class="text-center">' + (index + 1) + '</td>' +
           '<td><div class="fw-semibold">' + escapeHtml(row.f_title_ms || '') + '</div><small class="text-muted">' + escapeHtml(row.f_eventCode || '') + '</small></td>' +
           '<td><span class="badge bg-light text-dark">' + escapeHtml(row.f_type || '') + '</span></td>' +
           '<td><span class="badge bg-secondary-subtle text-secondary">' + escapeHtml(row.f_priority || '') + '</span></td>' +
-          '<td><span class="fw-semibold">' + escapeHtml(row.audience_summary || 'No audience') + '</span><div class="text-muted small">Jumlah target: ' + Number(row.audience_count || 0) + '</div></td>' +
+          '<td><span class="fw-semibold">' + escapeHtml(row.audience_summary || <?= json_encode(na('notification_admin_no_audience', 'No audience'), JSON_UNESCAPED_UNICODE) ?>) + '</span><div class="text-muted small">' + <?= json_encode(na('notification_admin_target_count', 'Target count'), JSON_UNESCAPED_UNICODE) ?> + ': ' + Number(row.audience_count || 0) + '</div></td>' +
           '<td>' + requiresAction + '</td>' +
           '<td><small>' + escapeHtml(row.f_insertdt || '') + '</small></td>' +
           '</tr>';
       }).join('');
       initRecentTable();
+    }
+
+    function confirmPublication(payload) {
+      const isBroadcast = payload.audience_type === 'ALL';
+      const audience = isBroadcast ? <?= json_encode(na('notification_admin_audience_all_users', 'All users'), JSON_UNESCAPED_UNICODE) ?> : ((payload.audience_type || '-') + ': ' + (payload.audience_value || '-'));
+      const html = '<div class="notification-admin-confirm-grid">' +
+        '<div><small>' + escapeHtml(<?= json_encode(na('notification_admin_confirm_title_label', 'Title'), JSON_UNESCAPED_UNICODE) ?>) + '</small><strong>' + escapeHtml(payload.title_ms || '-') + '</strong></div>' +
+        '<div><small>' + escapeHtml(<?= json_encode(na('notification_admin_confirm_audience_label', 'Audience'), JSON_UNESCAPED_UNICODE) ?>) + '</small><strong>' + escapeHtml(audience) + '</strong></div>' +
+        '<div><small>' + escapeHtml(<?= json_encode(na('notification_admin_confirm_type_label', 'Type / Priority'), JSON_UNESCAPED_UNICODE) ?>) + '</small><strong>' + escapeHtml((payload.type || '-') + ' / ' + (payload.priority || '-')) + '</strong></div>' +
+        '<div><small>' + escapeHtml(<?= json_encode(na('notification_admin_confirm_schedule_label', 'Schedule'), JSON_UNESCAPED_UNICODE) ?>) + '</small><strong>' + escapeHtml(payload.expires_at || <?= json_encode(na('notification_admin_no_expiry', 'No expiry'), JSON_UNESCAPED_UNICODE) ?>) + '</strong></div></div>';
+      if (!window.Swal) return Promise.resolve(window.confirm(<?= json_encode(na('notification_admin_confirm_text', 'Confirm this notification publication?'), JSON_UNESCAPED_UNICODE) ?>));
+      return window.Swal.fire({
+        icon: isBroadcast ? 'warning' : 'question',
+        title: isBroadcast ? <?= json_encode(na('notification_admin_confirm_broadcast_title', 'Confirm broadcast to all users'), JSON_UNESCAPED_UNICODE) ?> : <?= json_encode(na('notification_admin_confirm_title', 'Confirm notification publication'), JSON_UNESCAPED_UNICODE) ?>,
+        text: isBroadcast ? <?= json_encode(na('notification_admin_confirm_broadcast_text', 'This notification will be visible to every eligible user.'), JSON_UNESCAPED_UNICODE) ?> : <?= json_encode(na('notification_admin_confirm_text', 'Review the publication details before continuing.'), JSON_UNESCAPED_UNICODE) ?>,
+        html: html,
+        showCancelButton: true,
+        confirmButtonText: <?= json_encode(na('notification_admin_confirm_publish', 'Yes, publish'), JSON_UNESCAPED_UNICODE) ?>,
+        cancelButtonText: <?= json_encode(na('common_cancel', 'Cancel'), JSON_UNESCAPED_UNICODE) ?>,
+        confirmButtonColor: isBroadcast ? '#dc3545' : undefined,
+        focusCancel: isBroadcast
+      }).then(function (result) { return !!result.isConfirmed; });
     }
 
     setupBtn.addEventListener('click', function () {
@@ -910,6 +1521,12 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
     if (setupModalEl) {
       setupModalEl.addEventListener('shown.bs.modal', upgradeFieldHelp);
     }
+
+    document.querySelectorAll('.notification-copy-sample').forEach(function (button) {
+      button.addEventListener('click', function () {
+        copySampleCode(button);
+      });
+    });
 
     audienceType.addEventListener('change', function () {
       syncAudienceSample(false);
@@ -978,27 +1595,32 @@ $PAGE_TITLE = na('notification_admin_page_title', 'Notification Admin');
       }, 0);
     });
 
-    form.addEventListener('submit', function (event) {
+    form.addEventListener('submit', async function (event) {
       event.preventDefault();
       clearAlert();
+      const payload = readForm();
+      if (!form.reportValidity()) return;
+      if (!(await confirmPublication(payload))) return;
       submitBtn.disabled = true;
       submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>' + <?= json_encode(na('notification_admin_publishing', 'Publishing...'), JSON_UNESCAPED_UNICODE) ?>;
 
       fetch(form.dataset.publishUrl, {
         method: 'POST',
+        noLoader: true,
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'application/json',
-          'X-CSRF-Token': csrfToken
+          'X-CSRF-Token': csrfToken,
+          'X-No-Loader': '1'
         },
         credentials: 'same-origin',
-        body: JSON.stringify(readForm())
+        body: JSON.stringify(payload)
       }).then(function (response) {
         return response.text().then(function (raw) {
           let data = {};
           try { data = raw ? JSON.parse(raw) : {}; } catch (e) { data = {}; }
           if (!response.ok || data.success === false) {
-            throw new Error(data.message || data.error || 'Publish failed.');
+            throw new Error(data.message || data.error || <?= json_encode(na('notification_admin_publish_failed', 'Publish failed.'), JSON_UNESCAPED_UNICODE) ?>);
           }
           return data;
         });

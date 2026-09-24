@@ -1,5 +1,12 @@
 <?php
-// ajax/menu-swap.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/menu-swap.php
 declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
@@ -148,6 +155,7 @@ try {
   echo json_encode(['error'=>false, 'message'=>(string)__('userGroup_ok'), 'modulID'=>$modulID, 'swapped'=>['a'=>$aID,'b'=>$bID]], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e){
   if (isset($pdo) && $pdo->inTransaction()) $pdo->rollBack();
+  error_log('[menu-swap] ' . $e->getMessage());
   http_response_code(500);
-  echo json_encode(['error'=>true,'message'=>(string)__('userGroup_server_error_prefix') . ' ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+  echo json_encode(['error'=>true,'message'=>(string)__('userGroup_err_server')], JSON_UNESCAPED_UNICODE);
 }

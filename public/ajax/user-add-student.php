@@ -1,5 +1,12 @@
 <?php
-// ajax/user-add-student.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/user-add-student.php
 // Student-only add flow from v210 data into tbl_m_user
 declare(strict_types=1);
 
@@ -15,6 +22,10 @@ try {
     require_once __DIR__ . '/../includes/functions-db.php';
     logAjaxUnexpectedOutput('user-add-student:init.php', $initOutput);
 
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        jsonErrorResponse((string)__('userList_ajax_method_not_allowed'), 405);
+    }
+
     if (empty($_SESSION['f_stafID'])) {
         jsonErrorResponse((string)(__('unauthorized_access') ?: 'Sila log masuk terlebih dahulu.'), 401);
     }
@@ -24,6 +35,9 @@ try {
 
     $pdo = Database::getInstance('mysql')->getConnection();
     ensureAjaxGroupManagePermission($pdo);
+    if (!userListCanAddUsers($pdo)) {
+        jsonErrorResponse((string)__('userList_err_no_permission'), 403);
+    }
     $userSchema = new User($pdo);
 
     if (!is_student_mode_enabled()) {
@@ -31,7 +45,7 @@ try {
     }
 
     if (!checkRateLimit('user_add_student', 20, 60)) {
-        jsonErrorResponse('Terlalu banyak permintaan. Sila cuba lagi selepas beberapa saat.', 429);
+        jsonErrorResponse((string)__('userList_ajax_rate_limited'), 429);
     }
 
     $readPayload = static function (): array {
@@ -39,7 +53,7 @@ try {
         $data = json_decode($rawInput, true);
 
         if (!is_array($data)) {
-            jsonErrorResponse('Data tidak sah.', 400);
+            jsonErrorResponse((string)__('userList_ajax_invalid_data'), 400);
         }
 
         if (!isValidCsrfToken((string)($data['csrf_token'] ?? ''))) {
@@ -52,11 +66,11 @@ try {
         $flag = isset($data['flag']) ? (int)$data['flag'] : 1;
 
         if ($scope !== 'student' && $scope !== 'pelajar') {
-            jsonErrorResponse('Flow tambah pengguna ini khusus untuk pelajar sahaja.', 400);
+            jsonErrorResponse((string)__('userList_ajax_student_scope_only'), 400);
         }
 
         if ($matrik === '') {
-            jsonErrorResponse('No. matrik tidak boleh kosong.', 400);
+            jsonErrorResponse((string)__('userList_ajax_matric_required'), 400);
         }
 
         if (!in_array($flag, [0, 1], true)) {
@@ -72,7 +86,7 @@ try {
 
     $resolveGroup = static function (PDO $pdo, int $groupID): array {
         if ($groupID <= 0) {
-            jsonErrorResponse('Kumpulan pengguna tidak sah atau tidak wujud dalam sistem.', 400);
+            jsonErrorResponse((string)__('userList_ajax_invalid_group'), 400);
         }
 
         $sql = "SELECT f_groupID, f_groupKod, f_categoryUser FROM tbl_m_group WHERE f_groupID = :groupID LIMIT 1";
@@ -81,11 +95,11 @@ try {
         $groupRow = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$groupRow) {
-            jsonErrorResponse('Kumpulan pengguna tidak sah atau tidak wujud dalam sistem.', 400);
+            jsonErrorResponse((string)__('userList_ajax_invalid_group'), 400);
         }
 
         if (strtoupper(trim((string)($groupRow['f_categoryUser'] ?? ''))) !== 'PELAJAR') {
-            jsonErrorResponse('Kumpulan yang dipilih tidak sah untuk akses pelajar.', 400);
+            jsonErrorResponse((string)__('userList_ajax_invalid_student_group'), 400);
         }
 
         return [
@@ -106,7 +120,7 @@ try {
             ':loginID' => $identifier,
         ]);
         if ($stmt->fetch(PDO::FETCH_ASSOC)) {
-            jsonErrorResponse('Pelajar dengan nombor matrik ini sudah wujud dalam sistem.', 409);
+            jsonErrorResponse((string)__('userList_ajax_student_exists'), 409);
         }
     };
 
@@ -147,7 +161,7 @@ try {
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$row) {
-            jsonErrorResponse('Pelajar tidak dijumpai dalam sumber data atau tidak aktif.', 404);
+            jsonErrorResponse((string)__('userList_ajax_student_source_not_found'), 404);
         }
 
         return $row;
@@ -331,6 +345,7 @@ try {
     $payload = $readPayload();
     $matrik = $payload['matrik'];
     $group = $resolveGroup($pdo, $payload['groupID']);
+    userListEnsureAssignableGroup($pdo, (int)$payload['groupID']);
     $ensureUserNotExists($pdo, $matrik);
     $student = $fetchStudent($matrik);
 
@@ -347,7 +362,7 @@ try {
     $clearStudentCaches();
 
     jsonSuccessResponse([
-        'message' => 'Pelajar berjaya ditambah.',
+        'message' => (string)__('userList_success_add_student'),
         'userID' => $newUserId,
         'row' => $insertedRow,
     ]);
@@ -360,10 +375,10 @@ try {
         error_log('[user-add-student] Param keys: ' . implode(', ', array_keys($params)));
     }
     if ($e->getCode() == 23000 || strpos($e->getMessage(), 'Duplicate') !== false) {
-        jsonErrorResponse('Pelajar dengan nombor matrik ini sudah wujud dalam sistem.', 409);
+        jsonErrorResponse((string)__('userList_ajax_student_exists'), 409);
     }
-    jsonErrorResponse('Ralat database: ' . $e->getMessage(), 500);
+    jsonErrorResponse((string)__('userList_ajax_database_error'), 500);
 } catch (Throwable $e) {
     error_log('[user-add-student] Error: ' . $e->getMessage());
-    jsonErrorResponse('Ralat sistem semasa menambah pelajar.', 500);
+    jsonErrorResponse((string)__('userList_ajax_add_student_system_error'), 500);
 }

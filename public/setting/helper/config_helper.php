@@ -1,5 +1,12 @@
 <?php
-
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 declare(strict_types=1);
 
 // ===============================================
@@ -22,8 +29,12 @@ function app_config_array_get(array $config, string $key, $default = null) {
     return $value ?? $default;
 }
 
-function app_config_db_overrides(): array {
+function app_config_db_overrides(bool $refresh = false): array {
     static $overrides = null;
+
+    if ($refresh) {
+        $overrides = null;
+    }
 
     if (is_array($overrides)) {
         return $overrides;
@@ -52,6 +63,16 @@ function app_config_db_overrides(): array {
     }
 
     return $overrides;
+}
+
+/**
+ * Buang cache konfigurasi DB untuk request PHP semasa.
+ *
+ * Ini perlu dipanggil selepas tbl_m_config dikemas kini supaya bacaan semula
+ * dalam respons AJAX tidak memulangkan snapshot sebelum proses simpan.
+ */
+function app_config_reset_runtime_cache(): void {
+    app_config_db_overrides(true);
 }
 
 /**

@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 
 // 🔐 Security Headers
@@ -219,16 +226,19 @@ function validate_sso_auth_handoff($handoff, int $now, int $ttlSeconds): array {
     $resolvedLoginId = trim((string)($handoff['resolved_login_id'] ?? ''));
     $resolvedSource = trim((string)($handoff['resolved_source'] ?? ''));
     $validToken = !empty($handoff['valid_token']);
-    $validSource = in_array($resolvedSource, ['data3', 'data4'], true);
-    $nonce = trim((string)($handoff['nonce'] ?? ''));
-    $consumedAt = (int)($handoff['consumed_at'] ?? 0);
-    $hasValidIdentifier = $resolvedLoginId !== '' && ($validSource || !empty($handoff['data3_valid']) || !empty($handoff['data4_valid']));
+	$validSource = in_array($resolvedSource, ['data3', 'data4'], true);
+	$nonce = trim((string)($handoff['nonce'] ?? ''));
+	$correlationId = trim((string)($handoff['correlation_id'] ?? ''));
+	$consumedAt = (int)($handoff['consumed_at'] ?? 0);
+	$hasValidIdentifier = $resolvedLoginId !== ''
+		&& empty($handoff['identity_conflict'])
+		&& ($validSource || !empty($handoff['data3_valid']) || !empty($handoff['data4_valid']));
 
     if ($consumedAt > 0) {
         return ['ok' => false, 'reason' => 'consumed'];
     }
 
-    if (!$validToken || !$hasValidIdentifier || $nonce === '') {
+	if (!$validToken || !$hasValidIdentifier || $nonce === '' || $correlationId === '') {
         return ['ok' => false, 'reason' => 'invalid'];
     }
 
@@ -237,7 +247,8 @@ function validate_sso_auth_handoff($handoff, int $now, int $ttlSeconds): array {
         'reason' => 'ok',
         'login_id' => $resolvedLoginId,
         'source' => $resolvedSource,
-        'nonce' => $nonce,
+		'nonce' => $nonce,
+		'correlation_id' => $correlationId,
     ];
 }
 
@@ -314,7 +325,7 @@ $ssoHandoffTtlSeconds = 300;
 $rawSsoHandoff = $_SESSION['sso_auth_handoff'] ?? null;
 $ssoHandoffValidation = validate_sso_auth_handoff($rawSsoHandoff, $now, $ssoHandoffTtlSeconds);
 if (!$ssoHandoffValidation['ok'] && $ssoHandoffValidation['reason'] !== 'missing') {
-    clear_sso_auth_handoff();
+	    clear_sso_auth_handoff();
     $rawSsoHandoff = null;
 }
 $ssoHandoff = is_array($rawSsoHandoff) ? $rawSsoHandoff : [];
@@ -655,6 +666,20 @@ try {
         exit;
     }
 
+    if ($e->getMessage() === 'SSO_ACCOUNT_CATEGORY_MISMATCH') {
+        set_alert([
+            'type'  => 'sweet',
+            'title' => 'login_sso_account_not_provisioned_title',
+            'text'  => 'login_sso_account_not_provisioned_msg',
+            'icon'  => 'warning',
+            'confirm' => true,
+            'close_on_confirm' => true,
+        ]);
+        log_login_event("SSO_ACCOUNT_CATEGORY_MISMATCH", $f_loginID);
+        redirect('index.php');
+        exit;
+    }
+
     if ($e->getMessage() === 'SSO_DEFAULT_GROUP_INVALID') {
         set_alert([
             'type'  => 'sweet',
@@ -723,9 +748,10 @@ if ($loginOk) {
     if ($loginClientIp !== null && $loginClientIp !== '') {
         $lockoutModel->clearLoginThrottle('IP', $loginClientIp, $loginClientIp, $loginUserAgent);
     }
-    clear_sso_auth_handoff();
+	    clear_sso_auth_handoff();
+	    unset($_SESSION['sso_correlation_id'], $_SESSION['sso_last_failure_reference'], $_SESSION['sso_failure_count']);
 
-    // 🆕 SET session: kod jabatan dari MySQL (tbl_m_user.f_jabatanKod)
+	    // 🆕 SET session: kod jabatan dari MySQL (tbl_m_user.f_jabatanKod)
     try {
         $pdo = Database::getInstance('mysql')->getConnection();
         $lookupLoginID = trim((string)($_SESSION['f_loginID'] ?? $f_loginID));

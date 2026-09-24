@@ -1,5 +1,12 @@
 <?php
-// ajax/user-list-rows.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/user-list-rows.php
 // Return structured user rows for AJAX reload.
 declare(strict_types=1);
 
@@ -139,8 +146,14 @@ try {
             );
             $isProtectedAccount = isProtectedStaffAccount($stafID);
             $canManageProtectedSelf = canSelfManageProtectedStaffAccount($stafID);
-            $canEditGroup = $isADM_SA && (!$isProtectedAccount || $canManageProtectedSelf);
-            $canDeleteUser = $isADM_SA && !$isCurrentLoggedInUser && !$isProtectedAccount;
+            $isTargetSuperAdmin = strtoupper(trim($gKod)) === 'ADM-SA';
+            $canEditGroup = function_exists('userListCanEditTargetUser')
+                ? userListCanEditTargetUser($pdo, $u, $currentProfile)
+                : ($isADM_SA && (!$isProtectedAccount || $canManageProtectedSelf));
+            $canDeleteUser = (function_exists('userListCanDeleteTargetUser')
+                ? userListCanDeleteTargetUser($pdo, $u, $currentProfile)
+                : $isADM_SA) && !$isCurrentLoggedInUser && !$isProtectedAccount;
+            $canViewAsUser = $isADM_SA && !$isCurrentLoggedInUser && !$isProtectedAccount && !$isTargetSuperAdmin && $f_flag === 1 && $loginID !== '';
             
             $style = prestasi_group_ui_resolve($groupUiMaps, $gId, $gKod);
             $badgeClass = (string)($style['badgeClass'] ?? 'bg-secondary');
@@ -175,7 +188,8 @@ try {
                 'is_current_logged_in_user' => $isCurrentLoggedInUser,
                 'is_protected_account' => $isProtectedAccount,
                 'can_edit_group' => $canEditGroup,
-                'can_delete_user' => $canDeleteUser
+                'can_delete_user' => $canDeleteUser,
+                'can_view_as_user' => $canViewAsUser
             ];
         }
     }
@@ -187,5 +201,5 @@ try {
     
 } catch (Throwable $e) {
     error_log("[user-list-rows] Fatal: " . $e->getMessage() . "\n" . $e->getTraceAsString());
-    jsonErrorResponse('Ralat server. Sila hubungi pentadbir sistem.', 500);
+    jsonErrorResponse((string)__('userList_ajax_system_error'), 500);
 }

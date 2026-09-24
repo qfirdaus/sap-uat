@@ -13,6 +13,7 @@
     auditEventsDT: null,
     lastCopyTime: 0,
     isLoading: false,
+    pageLoaderTokens: {},
 
     copyText: async function (text) {
       if (!text) {
@@ -119,6 +120,18 @@
       }
     },
 
+    showPageLoader: function (key, message) {
+      this.hidePageLoader(key);
+      this.pageLoaderTokens[key] = message || I18N.loading || I18N.dt_processing || 'Loading...';
+    },
+
+    hidePageLoader: function (key) {
+      if (!this.pageLoaderTokens[key]) {
+        return;
+      }
+      delete this.pageLoaderTokens[key];
+    },
+
     waitForDataTables: function (maxWait) {
       const waitMs = maxWait || 5000;
       return new Promise((resolve, reject) => {
@@ -155,14 +168,15 @@
       if (!confirmed.isConfirmed) return;
 
       try {
-        const loader = document.getElementById('loginAjaxLoader');
-        if (loader) loader.classList.remove('d-none');
+        this.showPageLoader('killSession', I18N.profile_loading || I18N.loading || 'Loading...');
 
         const response = await fetch(URLS.killSessionAjax, {
           method: 'POST',
+          noLoader: true,
           headers: {
             'Content-Type': 'application/json',
-            'X-Requested-With': 'XMLHttpRequest'
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-No-Loader': '1'
           },
           body: JSON.stringify({
             session_id: sessionId,
@@ -173,7 +187,7 @@
         const data = await response.json();
 
         if (data.success) {
-          if (loader) loader.classList.add('d-none');
+          this.hidePageLoader('killSession');
 
           if (data.force_logout) {
             const countdown = parseInt(data.countdown || 10, 10);
@@ -216,7 +230,7 @@
             setTimeout(() => this.initLoginActivityTable(), 200);
           }
         } else {
-          if (loader) loader.classList.add('d-none');
+          this.hidePageLoader('killSession');
           await Swal.fire({
             icon: 'error',
             title: I18N.kill_error_title,
@@ -225,8 +239,7 @@
         }
       } catch (error) {
         console.error('Kill session error:', error);
-        const loader = document.getElementById('loginAjaxLoader');
-        if (loader) loader.classList.add('d-none');
+        this.hidePageLoader('killSession');
         await Swal.fire({ icon: 'error', title: I18N.kill_error_network });
       }
     },
@@ -252,10 +265,11 @@
       this.loginActivityDT = $('#loginActivityTable').DataTable({
         ajax: {
           url: URLS.loginActivityAjax,
+          headers: { 'X-No-Loader': '1' },
           dataSrc: 'data'
         },
         columns: [
-          { data: null, title: 'No.' },
+          { data: null, title: I18N.table_number || 'No.' },
           { data: 'started' },
           { data: 'ip' },
           { data: 'device' },
@@ -288,17 +302,21 @@
       });
 
       $('#loginActivityTable').on('preXhr.dt', function () {
-        const loader = document.getElementById('loginAjaxLoader');
-        if (loader) loader.classList.remove('d-none');
+        ProfilePage.showPageLoader('loginActivity', I18N.profile_loading || I18N.loading || 'Loading...');
       });
 
       this.loginActivityDT.on('xhr.dt draw.dt', function () {
-        const loader = document.getElementById('loginAjaxLoader');
-        if (loader) loader.classList.add('d-none');
+        ProfilePage.hidePageLoader('loginActivity');
         try {
           const api = $('#loginActivityTable').DataTable();
+          const emptyCell = $('#loginActivityTable tbody td.dataTables_empty');
+          if (emptyCell.length) {
+            emptyCell.attr('colspan', 7).addClass('text-center');
+            return;
+          }
           const info = api.page.info();
           api.rows({ page: 'current' }).nodes().each(function (el, i) {
+            if ($(el).find('td.dataTables_empty').length) return;
             $(el).find('td').eq(0).html(info.start + i + 1);
           });
         } catch (err) {
@@ -307,8 +325,7 @@
       });
 
       $('#loginActivityTable').on('error.dt', function (e, settings, techNote, message) {
-        const loader = document.getElementById('loginAjaxLoader');
-        if (loader) loader.classList.add('d-none');
+        ProfilePage.hidePageLoader('loginActivity');
         console.error('DataTable error:', techNote, message);
         Swal.fire({
           icon: 'error',
@@ -365,10 +382,11 @@
       this.auditEventsDT = $('#auditEventsTable').DataTable({
         ajax: {
           url: URLS.auditEventsAjax,
+          headers: { 'X-No-Loader': '1' },
           dataSrc: 'data'
         },
         columns: [
-          { data: null, title: 'No.' },
+          { data: null, title: I18N.table_number || 'No.' },
           { data: 'occurred_at' },
           { data: 'user' },
           { data: 'ip' },
@@ -417,13 +435,11 @@
       };
 
       $('#auditEventsTable').on('preXhr.dt', function () {
-        const loader = document.getElementById('auditEventsLoading');
-        if (loader) loader.style.display = 'block';
+        ProfilePage.showPageLoader('auditEvents', I18N.profile_loading || I18N.loading || 'Loading...');
       });
 
       this.auditEventsDT.on('xhr.dt draw.dt', function () {
-        const loader = document.getElementById('auditEventsLoading');
-        if (loader) loader.style.display = 'none';
+        ProfilePage.hidePageLoader('auditEvents');
         updateAuditNumbering();
         initAuditActivityTooltips();
       });
@@ -576,15 +592,15 @@
                 </div>
                 <div class="audit-header-stats">
                   <div class="audit-mini-stat">
-                    <span class="audit-mini-stat-label">Meta</span>
+                    <span class="audit-mini-stat-label">${this._escapeHtml(I18N.audit_stat_meta)}</span>
                     <strong>${this._escapeHtml(String(metaFieldCount))}</strong>
                   </div>
                   <div class="audit-mini-stat">
-                    <span class="audit-mini-stat-label">Set</span>
+                    <span class="audit-mini-stat-label">${this._escapeHtml(I18N.audit_stat_sets)}</span>
                     <strong>${this._escapeHtml(String(changeSetCount))}</strong>
                   </div>
                   <div class="audit-mini-stat">
-                    <span class="audit-mini-stat-label">Diff</span>
+                    <span class="audit-mini-stat-label">${this._escapeHtml(I18N.audit_stat_changes)}</span>
                     <strong>${this._escapeHtml(String(changeFieldCount))}</strong>
                   </div>
                 </div>
@@ -804,9 +820,7 @@
 
       $btn.prop('disabled', true);
       $btn.html('<i class="ri-loader-4-line ri-spin"></i>');
-
-      this.showLoading('#loginActivityLoading');
-      this.showLoading('#auditEventsLoading');
+      this.showPageLoader('refreshProfile', I18N.profile_loading || I18N.loading || 'Loading...');
 
       try {
         window.location.reload();
@@ -815,8 +829,7 @@
         this.toast(I18N.refresh_failed, 'error');
         $btn.prop('disabled', false);
         $btn.html(originalHtml);
-        this.hideLoading('#loginActivityLoading');
-        this.hideLoading('#auditEventsLoading');
+        this.hidePageLoader('refreshProfile');
       }
     },
 

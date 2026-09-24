@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../classes/Database.php';
@@ -730,7 +738,7 @@ class AuditCenterController
         if (!$this->tableExists('audit_event')) {
             return 0;
         }
-        return (int)$this->pdoMysql->query("SELECT COUNT(*) FROM audit_event WHERE DATE(occurred_at) = CURRENT_DATE()")->fetchColumn();
+        return (int)$this->pdoMysql->query("SELECT COUNT(*) FROM audit_event WHERE occurred_at >= CURRENT_DATE() AND occurred_at < CURRENT_DATE() + INTERVAL 1 DAY")->fetchColumn();
     }
 
     private function countTodaySecurityEvents(): int
@@ -742,7 +750,8 @@ class AuditCenterController
         $stmt = $this->pdoMysql->prepare(
             "SELECT COUNT(*)
              FROM audit_event
-             WHERE DATE(occurred_at) = CURRENT_DATE()
+             WHERE occurred_at >= CURRENT_DATE()
+               AND occurred_at < CURRENT_DATE() + INTERVAL 1 DAY
                AND (severity = :severity OR event_type = :eventType)"
         );
         $stmt->execute([

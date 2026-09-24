@@ -340,7 +340,7 @@
                                     <td id="db-runtime-mysql-environment"><?= $mainMysqlEnvironment === 'development' ? __('config_tab_db_environment_development') ?? 'Development' : __('config_tab_db_environment_production') ?? 'Production' ?></td>
                                   </tr>
                                   <tr>
-                                    <td><strong>Resolved Key</strong></td>
+                                    <td><strong><?= __('config_tab_db_mysql_resolved_key') ?></strong></td>
                                     <td><code class="text-primary" id="db-runtime-mysql-resolved-key"><?= htmlspecialchars($mysqlActiveResolvedKey, ENT_QUOTES, 'UTF-8') ?></code></td>
                                   </tr>
                                   <tr>
@@ -360,20 +360,20 @@
                                     <td id="db-runtime-mysql-user"><?= htmlspecialchars($mysqlUser, ENT_QUOTES, 'UTF-8') ?></td>
                                   </tr>
                                   <tr>
-                                    <td><strong>Production Target</strong></td>
-                                    <td id="db-runtime-mysql-prod-target"><?= htmlspecialchars($mysqlProdTargetText, ENT_QUOTES, 'UTF-8') ?><?= $mysqlProdDedicated ? ' <span class="badge bg-success-subtle text-success ms-1">dedicated env</span>' : ' <span class="badge bg-secondary-subtle text-secondary ms-1">fallback</span>' ?></td>
+                                    <td><strong><?= __('config_tab_db_mysql_production_target') ?></strong></td>
+                                    <td id="db-runtime-mysql-prod-target"><?= htmlspecialchars($mysqlProdTargetText, ENT_QUOTES, 'UTF-8') ?><?= $mysqlProdDedicated ? ' <span class="badge bg-success-subtle text-success ms-1">' . h(__('config_tab_db_mysql_dedicated_env')) . '</span>' : ' <span class="badge bg-secondary-subtle text-secondary ms-1">' . h(__('config_tab_db_mysql_fallback')) . '</span>' ?></td>
                                   </tr>
                                   <tr>
-                                    <td><strong>Development Target</strong></td>
-                                    <td id="db-runtime-mysql-dev-target"><?= htmlspecialchars($mysqlDevTargetText, ENT_QUOTES, 'UTF-8') ?><?= $mysqlDevDedicated ? ' <span class="badge bg-success-subtle text-success ms-1">dedicated env</span>' : ' <span class="badge bg-secondary-subtle text-secondary ms-1">fallback</span>' ?></td>
+                                    <td><strong><?= __('config_tab_db_mysql_development_target') ?></strong></td>
+                                    <td id="db-runtime-mysql-dev-target"><?= htmlspecialchars($mysqlDevTargetText, ENT_QUOTES, 'UTF-8') ?><?= $mysqlDevDedicated ? ' <span class="badge bg-success-subtle text-success ms-1">' . h(__('config_tab_db_mysql_dedicated_env')) . '</span>' : ' <span class="badge bg-secondary-subtle text-secondary ms-1">' . h(__('config_tab_db_mysql_fallback')) . '</span>' ?></td>
                                   </tr>
                                   <tr>
-                                    <td><strong>Diagnostic</strong></td>
+                                    <td><strong><?= __('config_tab_db_mysql_diagnostic') ?></strong></td>
                                     <td id="db-runtime-mysql-diagnostic">
                                       <?php if ($mysqlSameTarget): ?>
-                                        <span class="badge bg-warning-subtle text-warning"><i class="ri-alert-line me-1"></i>Production dan development resolve ke target yang sama</span>
+                                        <span class="badge bg-warning-subtle text-warning"><i class="ri-alert-line me-1"></i><?= __('config_tab_db_mysql_same_target') ?></span>
                                       <?php else: ?>
-                                        <span class="badge bg-success-subtle text-success"><i class="ri-checkbox-circle-line me-1"></i>Production dan development resolve ke target berbeza</span>
+                                        <span class="badge bg-success-subtle text-success"><i class="ri-checkbox-circle-line me-1"></i><?= __('config_tab_db_mysql_different_target') ?></span>
                                       <?php endif; ?>
                                     </td>
                                   </tr>
@@ -413,6 +413,52 @@
                         </div>
                       </div>
                       <div class="card-body">
+                        <?php
+                          $additionalDiagnosticWarnings = is_array($additionalDiagnostics['warnings'] ?? null)
+                            ? $additionalDiagnostics['warnings']
+                            : [];
+                          $additionalDiagnosticStatus = (string)($additionalDiagnostics['status'] ?? 'healthy');
+                          $additionalDiagnosticClass = $additionalDiagnosticStatus === 'attention'
+                            ? 'danger'
+                            : ($additionalDiagnosticStatus === 'warning' ? 'warning' : 'success');
+                        ?>
+                        <div class="alert alert-<?= h($additionalDiagnosticClass) ?> mb-3" id="db-additional-diagnostics" role="status">
+                          <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+                            <div>
+                              <div class="fw-semibold">
+                                <i class="ri-pulse-line me-1"></i> <?= __('config_tab_db_additional_diagnostics_title') ?>
+                              </div>
+                              <div class="small mt-1" id="db-additional-diagnostics-summary">
+                                Runtime <?= h(strtoupper((string)($additionalDiagnostics['runtime_os'] ?? PHP_OS_FAMILY))) ?> ·
+                                PDO <?= h(implode(', ', (array)($additionalDiagnostics['available_drivers'] ?? [])) ?: 'none') ?> ·
+                                <?= h(sprintf(__('config_tab_db_additional_diagnostics_enabled'), (string)($additionalDiagnostics['enabled_count'] ?? 0))) ?> ·
+                                <?= h(sprintf(__('config_tab_db_additional_diagnostics_active_rows'), (string)($additionalDiagnostics['active_env_count'] ?? 0))) ?>
+                              </div>
+                            </div>
+                            <span class="badge bg-<?= h($additionalDiagnosticClass) ?>" id="db-additional-diagnostics-count">
+                              <?= h(sprintf(__('config_tab_db_additional_diagnostics_warning_count'), (string)($additionalDiagnostics['warning_count'] ?? 0))) ?>
+                            </span>
+                          </div>
+                          <div class="small mt-2">
+                            <?= __('config_tab_db_additional_diagnostics_note') ?>
+                          </div>
+                          <?php if ($additionalDiagnosticWarnings !== []): ?>
+                            <ul class="small mb-0 mt-2 ps-3" id="db-additional-diagnostics-warnings">
+                              <?php foreach (array_slice($additionalDiagnosticWarnings, 0, 8) as $diagnosticWarning): ?>
+                                <li>
+                                  <code><?= h((string)($diagnosticWarning['connection_code'] ?? '-')) ?></code>
+                                  — <?= h((string)($diagnosticWarning['message'] ?? '')) ?>
+                                </li>
+                              <?php endforeach; ?>
+                              <?php if (count($additionalDiagnosticWarnings) > 8): ?>
+                                <li><?= h(sprintf(__('config_tab_db_additional_diagnostics_more_warnings'), (string)(count($additionalDiagnosticWarnings) - 8))) ?></li>
+                              <?php endif; ?>
+                            </ul>
+                          <?php endif; ?>
+                          <?php if ($additionalDiagnosticWarnings === []): ?>
+                            <ul class="small mb-0 mt-2 ps-3 d-none" id="db-additional-diagnostics-warnings"></ul>
+                          <?php endif; ?>
+                        </div>
                         <div class="db-additional-toolbar">
                           <div class="row g-2">
                             <div class="col-md-4">
@@ -440,17 +486,27 @@
                         </div>
 
                         <div class="table-responsive db-settings-table dt-standard-shell">
-                          <table class="table table-hover align-middle mb-0">
+                          <table class="table table-hover align-middle mb-0 db-additional-registry-table">
+                            <colgroup>
+                              <col class="db-additional-col-code">
+                              <col class="db-additional-col-name">
+                              <col class="db-additional-col-type">
+                              <col class="db-additional-col-purpose">
+                              <col class="db-additional-col-environment">
+                              <col class="db-additional-col-status">
+                              <col class="db-additional-col-last-test">
+                              <col class="db-additional-col-actions">
+                            </colgroup>
                             <thead class="table-light">
                               <tr>
-                                <th style="width:170px"><?= __('config_tab_db_additional_code') ?? 'Code' ?></th>
-                                <th style="width:220px"><?= __('config_tab_db_additional_name') ?? 'Name' ?></th>
-                                <th style="width:100px"><?= __('config_tab_db_additional_type') ?? 'Type' ?></th>
-                                <th style="width:120px"><?= __('config_tab_db_additional_purpose') ?? 'Purpose' ?></th>
-                                <th style="width:170px"><?= __('config_tab_db_additional_env') ?? 'Environment' ?></th>
-                                <th style="width:120px"><?= __('config_tab_db_additional_status') ?? 'Status' ?></th>
-                                <th style="width:220px"><?= __('config_tab_db_additional_last_test') ?? 'Last Test' ?></th>
-                                <th class="text-start" style="width:250px"><?= __('config_tab_db_additional_actions') ?? 'Actions' ?></th>
+                                <th><?= __('config_tab_db_additional_code') ?? 'Code' ?></th>
+                                <th><?= __('config_tab_db_additional_name') ?? 'Name' ?></th>
+                                <th><?= __('config_tab_db_additional_type') ?? 'Type' ?></th>
+                                <th><?= __('config_tab_db_additional_purpose') ?? 'Purpose' ?></th>
+                                <th><?= __('config_tab_db_additional_env') ?? 'Environment' ?></th>
+                                <th><?= __('config_tab_db_additional_status') ?? 'Status' ?></th>
+                                <th><?= __('config_tab_db_additional_last_test') ?? 'Last Test' ?></th>
+                                <th class="text-start"><?= __('config_tab_db_additional_actions') ?? 'Actions' ?></th>
                               </tr>
                             </thead>
                             <tbody id="db-additional-table-body">
@@ -484,7 +540,7 @@
               </form>
 
               <div class="modal fade" id="db-additional-modal" tabindex="-1" aria-hidden="true" aria-labelledby="db-additional-modal-title">
-                <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
                   <div class="modal-content">
                     <div class="modal-header">
                       <div class="db-additional-modal-heading">
@@ -519,6 +575,7 @@
                         <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
                         <input type="hidden" name="form_type" id="db-additional-form-type" value="db_additional_create">
                         <input type="hidden" name="existing_code" id="db-additional-existing-code" value="">
+                        <input type="hidden" name="f_registry_revision" id="db-additional-registry-revision" value="">
 
                         <div class="tab-content" id="db-additional-modal-tabs-content">
                           <div class="tab-pane fade show active" id="tab-additional-connection" role="tabpanel" aria-labelledby="tab-additional-connection-tab">
@@ -619,9 +676,17 @@
                                   <div>
                                     <small class="text-muted"><?= __('config_tab_db_additional_env_configs_sub') ?? 'Tambah satu atau lebih env row ikut driver dan OS yang diperlukan.' ?></small>
                                   </div>
-                                  <button type="button" class="btn btn-primary btn-sm db-rounded-btn" id="btn-db-additional-env-add">
-                                    <i class="ri-add-line me-1"></i> <?= __('config_tab_db_additional_add_env_row') ?? 'Add Env Row' ?>
-                                  </button>
+                                  <div class="d-flex flex-wrap gap-2">
+                                    <button type="button" class="btn btn-outline-primary btn-sm db-rounded-btn" id="btn-db-additional-preset-windows-odbc">
+                                      <i class="ri-windows-line me-1"></i> Windows ODBC
+                                    </button>
+                                    <button type="button" class="btn btn-outline-primary btn-sm db-rounded-btn" id="btn-db-additional-preset-linux-dblib">
+                                      <i class="ri-terminal-box-line me-1"></i> Linux DBLIB
+                                    </button>
+                                    <button type="button" class="btn btn-primary btn-sm db-rounded-btn" id="btn-db-additional-env-add">
+                                      <i class="ri-add-line me-1"></i> <?= __('config_tab_db_additional_add_env_row') ?? 'Add Env Row' ?>
+                                    </button>
+                                  </div>
                                 </div>
                                 <div id="db-additional-env-rows" class="db-additional-env-rows"></div>
                               </div>
@@ -641,7 +706,7 @@
               </div>
 
               <div class="modal fade" id="db-additional-view-modal" tabindex="-1" aria-hidden="true" aria-labelledby="db-additional-view-modal-title">
-                <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
                   <div class="modal-content">
                     <div class="modal-header db-additional-view-header">
                       <div class="db-additional-modal-heading">
@@ -664,7 +729,7 @@
               </div>
 
               <div class="modal fade" id="db-additional-child-view-modal" tabindex="-1" aria-hidden="true" aria-labelledby="db-additional-child-view-modal-title">
-                <div class="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
+                <div class="modal-dialog modal-xl modal-dialog-scrollable">
                   <div class="modal-content">
                     <div class="modal-header db-additional-view-header">
                       <div class="db-additional-modal-heading">

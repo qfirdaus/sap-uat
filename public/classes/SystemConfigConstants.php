@@ -1,5 +1,12 @@
 <?php
-// classes/SystemConfigConstants.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// classes/SystemConfigConstants.php
 declare(strict_types=1);
 
 /**
@@ -202,6 +209,7 @@ class SystemConfigConstants {
   const AUDIT_EVENT_DB_UPDATE = 'UPDATE';
   const AUDIT_EVENT_THEME_UPDATE = 'UPDATE';
   const AUDIT_EVENT_LANGUAGE_UPDATE = 'UPDATE';
+  const AUDIT_EVENT_AI_CHATBOT_UPDATE = 'UPDATE';
   
   // Target Types for Audit
   const AUDIT_TARGET_GENERAL = 'system_config_general';
@@ -209,8 +217,10 @@ class SystemConfigConstants {
   const AUDIT_TARGET_DB = 'system_config_database';
   const AUDIT_TARGET_THEME = 'system_config_theme';
   const AUDIT_TARGET_LANGUAGE = 'system_config_language';
+  const AUDIT_TARGET_AI_CHATBOT = 'system_config_ai_chatbot';
 
   // Config Groups
   const CONFIG_GROUP_APP_SETTINGS = 'app_settings';
   const CONFIG_GROUP_SYSTEM = 'system';
+  const CONFIG_GROUP_AI_CHATBOT = 'ai_chatbot';
 }

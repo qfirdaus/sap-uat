@@ -1,10 +1,18 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 require_once __DIR__ . '/EmailTemplate.php';
 require_once __DIR__ . '/EmailPlaceholder.php';
 require_once __DIR__ . '/EmailTemplateRenderService.php';
 require_once __DIR__ . '/Mailer.php';
+require_once __DIR__ . '/ExternalServiceException.php';
 require_once __DIR__ . '/../setting/helper/audit_helper.php';
 
 final class EmailTemplateDeliveryService
@@ -115,7 +123,7 @@ final class EmailTemplateDeliveryService
         );
 
         if (!$sent) {
-            throw new RuntimeException($mailer->getLastError() ?: 'Email could not be sent.');
+            throw $mailer->lastFailureAsExternalServiceException('Email could not be sent.');
         }
 
         if (function_exists('audit_event')) {

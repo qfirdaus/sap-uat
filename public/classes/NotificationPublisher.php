@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 require_once __DIR__ . '/Database.php';
 require_once __DIR__ . '/NotificationAudienceResolver.php';
@@ -517,10 +524,15 @@ final class NotificationPublisher
         if ($url === '') {
             return '';
         }
-        if (preg_match('/^(https?:)?\/\//i', $url) || str_starts_with(strtolower($url), 'javascript:') || str_starts_with(strtolower($url), 'data:')) {
+        if (preg_match('/^(https?:)?\/\//i', $url)
+            || preg_match('/^(?:javascript|data):/i', $url)
+            || str_contains($url, '..')
+            || str_contains($url, '\\')
+            || preg_match('/[\x00-\x1F\x7F]/', $url)) {
             return '';
         }
-        return ltrim($url, '/');
+        $url = ltrim($url, '/');
+        return preg_match('/^[A-Za-z0-9_.\/-]+(?:\?[A-Za-z0-9_=&%+.,:@\/-]*)?(?:#[A-Za-z0-9_.-]*)?$/', $url) ? $url : '';
     }
 
     /**

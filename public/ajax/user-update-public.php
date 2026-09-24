@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
@@ -11,6 +18,10 @@ try {
     $initOutput = ob_get_clean();
     require_once __DIR__ . '/_helpers.php';
     logAjaxUnexpectedOutput('user-update-public:init.php', $initOutput);
+
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        jsonErrorResponse((string)__('userList_ajax_method_not_allowed'), 405);
+    }
 
     if (empty($_SESSION['f_stafID'])) {
         jsonErrorResponse((string)(__('unauthorized_access') ?: 'Sila log masuk terlebih dahulu.'), 401);
@@ -77,6 +88,7 @@ try {
     if (!$userRow) {
         jsonErrorResponse((string)__('userList_ajax_user_not_found'), 404);
     }
+    userListEnsureTargetUserEditable($pdo, $userID);
     $targetProtectedStaffId = (string)($userRow['f_stafID'] ?? '');
     if (isProtectedStaffAccount($targetProtectedStaffId) && !canSelfManageProtectedStaffAccount($targetProtectedStaffId)) {
         try {
@@ -119,6 +131,7 @@ try {
     if (!$groupRow) {
         jsonErrorResponse((string)__('userList_ajax_invalid_group'), 400);
     }
+    userListEnsureAssignableGroup($pdo, $groupID);
     if (strtoupper(trim((string)($groupRow['f_categoryUser'] ?? ''))) !== 'UMUM') {
         jsonErrorResponse((string)__('userList_ajax_invalid_public_group'), 400);
     }

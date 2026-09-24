@@ -1,10 +1,23 @@
 <?php
-// ajax/menu-delete.php — kekal sokong groupID/hard/cascade, tapi tetap clean+delete global
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/menu-delete.php — kekal sokong groupID/hard/cascade, tapi tetap clean+delete global
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/init.php';
 require_login();
 require_once __DIR__ . '/_helpers.php';
 header('Content-Type: application/json; charset=utf-8');
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => true, 'message' => (string)__('userGroup_method_not_allowed')], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 try {
     $rawBody = file_get_contents('php://input');
@@ -150,5 +163,6 @@ try {
 } catch (Throwable $e) {
     if (!empty($db) && $db->inTransaction()) $db->rollBack();
     http_response_code(500);
-    echo json_encode(['error'=>true, 'message'=>(string)__('userGroup_server_error_prefix') . ' ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+    error_log('[menu-delete] ' . $e->getMessage());
+    echo json_encode(['error'=>true, 'message'=>(string)__('userGroup_err_server')], JSON_UNESCAPED_UNICODE);
 }

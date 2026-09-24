@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 // pages/senarai-pengguna.php
 declare(strict_types=1);
 
@@ -173,12 +181,19 @@ $roleAdminSaKod = defined('PRESTASI_ROLE_KOD_ADM_SA') ? (string)PRESTASI_ROLE_KO
 $roleAdminHrKod = defined('PRESTASI_ROLE_ADM_HR') ? (string)PRESTASI_ROLE_ADM_HR : 'ADM-HR';
 $roleAdminKeKod = defined('PRESTASI_ROLE_ADM_KE') ? (string)PRESTASI_ROLE_ADM_KE : 'ADM-KE';
 $isSuperAdmin = function_exists('is_user_super_admin') ? is_user_super_admin($profile, $dbMySQL) : ($roleAdminSaId > 0 && (int)($profile['f_groupID'] ?? 0) === $roleAdminSaId);
+$canAddUsers = function_exists('userListCanAddUsers') ? userListCanAddUsers($dbMySQL, $profile) : $isSuperAdmin;
+$canEditUsers = function_exists('userListCanEditTargetUser') ? userListCanEditTargetUser($dbMySQL, [], $profile) : $isSuperAdmin;
+$canDeleteUsers = function_exists('userListCanDeleteTargetUser') ? userListCanDeleteTargetUser($dbMySQL, [], $profile) : $isSuperAdmin;
 
 // ======================= Load Group List (fresh DB for style consistency) =======================
 $senaraiGroup = [];
 $senaraiGroupStaf = [];
 $senaraiGroupPelajar = [];
 $senaraiGroupUmum = [];
+$assignableGroup = [];
+$assignableGroupStaf = [];
+$assignableGroupPelajar = [];
+$assignableGroupUmum = [];
 try {
     $groupSelect = [
       'f_groupID',
@@ -204,12 +219,23 @@ try {
       $senaraiGroup,
       static fn($row) => is_array($row) && group_category_matches_scope((string)($row['f_categoryUser'] ?? ''), 'public')
     ));
+    $canAssignGroup = static function ($row) use ($dbMySQL, $profile): bool {
+      return is_array($row) && (!function_exists('userListCanAssignGroup') || userListCanAssignGroup($dbMySQL, $row, $profile));
+    };
+    $assignableGroup = array_values(array_filter($senaraiGroup, $canAssignGroup));
+    $assignableGroupStaf = array_values(array_filter($senaraiGroupStaf, $canAssignGroup));
+    $assignableGroupPelajar = array_values(array_filter($senaraiGroupPelajar, $canAssignGroup));
+    $assignableGroupUmum = array_values(array_filter($senaraiGroupUmum, $canAssignGroup));
 } catch (Throwable $e) {
     error_log('[senarai-pengguna] Error loading groups: ' . $e->getMessage());
     $senaraiGroup = [];
     $senaraiGroupStaf = [];
     $senaraiGroupPelajar = [];
     $senaraiGroupUmum = [];
+    $assignableGroup = [];
+    $assignableGroupStaf = [];
+    $assignableGroupPelajar = [];
+    $assignableGroupUmum = [];
 }
 
 // ======================= Data-Driven UI Style Map (Group) =======================
@@ -420,6 +446,8 @@ function render_user_access_table(
   string $currentUserStafIDNormalized,
   string $currentUserNoPekerjaNormalized,
   bool $isSuperAdmin,
+  PDO $policyPdo,
+  array $policyProfile,
   string $scope = 'staff',
   ?string $nameColumnLabel = null,
   ?string $departmentColumnLabel = null,
@@ -474,11 +502,24 @@ function render_user_access_table(
                       $isProtectedAccount = is_protected_staff_account_local($stafID);
                       $isAutoProvisioned = (int)($u['f_isAutoProvisioned'] ?? 0) === 1;
                       $identitySource = strtoupper(trim((string)($u['f_identitySource'] ?? '')));
+                      $isSsoIdentity = $identitySource === 'SSO';
+                      $showSsoIndicator = $isAutoProvisioned || $isSsoIdentity;
+                      $ssoIndicatorTooltip = $isAutoProvisioned
+                        ? sprintf((string)__('userList_auto_provisioned_tooltip'), $identitySource !== '' ? $identitySource : 'SSO')
+                        : (string)__('userList_sso_identity_tooltip');
                       $isCurrentLoggedInUser =
                         ($currentUserId > 0 && $userID === $currentUserId) ||
                         ($currentUserStafIDNormalized !== '' && str_replace('-', '', $stafID) === $currentUserStafIDNormalized) ||
                         ($currentUserNoPekerjaNormalized !== '' && str_replace('-', '', $f_nopekerja) === $currentUserNoPekerjaNormalized);
                       $canManageProtectedSelf = can_self_manage_protected_staff_account_local($stafID, $currentUserStafIDNormalized);
+                      $isTargetSuperAdmin = strtoupper(trim($gKod)) === 'ADM-SA';
+                      $canEditThisUser = function_exists('userListCanEditTargetUser')
+                        ? userListCanEditTargetUser($policyPdo, $u, $policyProfile)
+                        : ($isSuperAdmin && (!$isProtectedAccount || $canManageProtectedSelf));
+                      $canDeleteThisUser = function_exists('userListCanDeleteTargetUser')
+                        ? (userListCanDeleteTargetUser($policyPdo, $u, $policyProfile) && !$isCurrentLoggedInUser && !$isProtectedAccount)
+                        : ($isSuperAdmin && !$isCurrentLoggedInUser && !$isProtectedAccount);
+                      $canViewAsUser = $isSuperAdmin && !$isCurrentLoggedInUser && !$isProtectedAccount && !$isTargetSuperAdmin && $f_flag === 1 && $loginID !== '';
                     ?>
                     <?php
                       $groupStyle = prestasi_group_ui_resolve($groupUiMaps, $gId, $gKod);
@@ -491,10 +532,10 @@ function render_user_access_table(
                       <td class="col-nama">
                         <div class="user-name-shell">
                           <span class="truncate-1line cell-tooltip-text" data-bs-toggle="tooltip" data-bs-placement="top" title="<?= h($nama . ' (' . $visibleIdentifier . ')') ?>"><?= h($nama) ?> (<?= h($visibleIdentifier) ?>)</span>
-                          <?php if ($isAutoProvisioned || $isProtectedAccount): ?>
+                          <?php if ($showSsoIndicator || $isProtectedAccount): ?>
                             <span class="user-name-indicators">
-                              <?php if ($isAutoProvisioned): ?>
-                                <span class="auto-provisioned-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="<?= h(sprintf((string)__('userList_auto_provisioned_tooltip'), $identitySource !== '' ? $identitySource : 'SSO')) ?>"><i class="ri-user-add-line"></i></span>
+                              <?php if ($showSsoIndicator): ?>
+                                <span class="auto-provisioned-icon" data-bs-toggle="tooltip" data-bs-placement="top" title="<?= h($ssoIndicatorTooltip) ?>"><i class="ri-user-add-line"></i></span>
                               <?php endif; ?>
                               <?php if ($isProtectedAccount): ?>
                                 <span class="protected-account-badge" data-bs-toggle="tooltip" data-bs-placement="top" title="<?= h(__('userList_protected_tooltip')) ?>"><?= h(__('userList_protected_badge')) ?></span>
@@ -526,9 +567,20 @@ function render_user_access_table(
                         <?php endif; ?>
                       </td>
                       <td class="col-actions">
-                        <?php if ($isSuperAdmin && (!$isProtectedAccount || $canManageProtectedSelf)): ?>
+                        <?php if ($canEditThisUser || $canDeleteThisUser || $canViewAsUser): ?>
+                          <?php if ($canViewAsUser): ?>
+                            <button type="button"
+                              class="btn btn-outline-warning btn-sm icon-btn btn-view-as-user"
+                              title="<?= h(__('impersonation_view_as_action')) ?>"
+                              data-loginid="<?= h($loginID) ?>"
+                              data-nama="<?= h($nama) ?>"
+                              data-displayid="<?= h($visibleIdentifier) ?>">
+                              <i class="ri-eye-line"></i>
+                            </button>
+                          <?php endif; ?>
+                          <?php if ($canEditThisUser): ?>
                           <button type="button"
-                            class="btn btn-outline-primary btn-sm icon-btn btn-edit-group"
+                            class="btn btn-outline-primary btn-sm icon-btn btn-edit-group<?= $canViewAsUser ? ' ms-1' : '' ?>"
                             title="<?= h(__('userList_action_change_group')) ?>"
                             data-user-id="<?= h((string)$userID) ?>"
                             data-nama="<?= h($nama) ?>"
@@ -550,7 +602,8 @@ function render_user_access_table(
                             data-flag="<?= h((string)$f_flag) ?>">
                             <i class="ri-pencil-line"></i>
                           </button>
-                          <?php if (!$isCurrentLoggedInUser && !$isProtectedAccount): ?>
+                          <?php endif; ?>
+                          <?php if ($canDeleteThisUser): ?>
                             <button type="button"
                               class="btn btn-outline-danger btn-sm icon-btn btn-delete-user ms-1"
                               title="<?= h(__('userList_action_delete_user')) ?>"
@@ -607,6 +660,7 @@ try {
   $existingStafIDs = $existingStafIDs ?? [];
 }
 
+$version = (string)($_ENV['APP_ASSET_VER'] ?? date('ymdHis'));
 $PAGE_TITLE = (string)__('userList_page_heading_main');
 ?>
 <!DOCTYPE html>
@@ -976,7 +1030,6 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
       }
       .modal,
       .modal-dialog,
-      .modal-dialog-centered,
       .modal-content,
       .modal-content::before,
       .modal-content::after {
@@ -1705,6 +1758,46 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
         font-size: 0.875rem !important;
         line-height: 1.45 !important;
       }
+      /* Pastikan medan carian Select2 tidak runtuh/tersembunyi dalam modal. */
+      #addUserModal .select2-container--open .select2-dropdown {
+        z-index: 1065;
+        border: 1px solid #dbe4f0 !important;
+        background: #fff !important;
+        overflow: hidden;
+      }
+      #addUserModal .select2-container--open .select2-search--dropdown {
+        display: block !important;
+        padding: 0.65rem !important;
+        background: #f8fafc !important;
+      }
+      #addUserModal .select2-container--open .select2-search--dropdown .select2-search__field {
+        display: block !important;
+        visibility: visible !important;
+        opacity: 1 !important;
+        width: 100% !important;
+        height: 40px !important;
+        min-height: 40px !important;
+        padding: 0.55rem 0.75rem !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 7px !important;
+        outline: none !important;
+        background: #fff !important;
+        color: #0f172a !important;
+        font-size: 0.875rem !important;
+        line-height: 1.4 !important;
+      }
+      #addUserModal .select2-container--open .select2-search--dropdown .select2-search__field:focus {
+        border-color: #6b8be4 !important;
+        box-shadow: 0 0 0 3px rgba(107, 139, 228, 0.16) !important;
+      }
+      #addUserModal .select2-container--open .select2-results,
+      #addUserModal .select2-container--open .select2-results__options {
+        display: block !important;
+      }
+      #addUserModal .select2-container--open .select2-results__options {
+        max-height: 250px !important;
+        overflow-y: auto !important;
+      }
       #addUserModal .form-select:focus,
       #userGroupModal .form-select:focus,
       .form-select:focus {
@@ -2274,6 +2367,248 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
       border-color: rgba(32, 201, 151, 0.45);
       color: #fff;
     }
+
+    /* User access workspace redesign */
+    .user-list-page{
+      --ul-accent: var(--ct-accent, var(--ct-primary));
+      --ul-accent-start: var(--ct-primary-start, var(--ct-primary));
+      --ul-accent-end: var(--ct-primary-end, var(--ct-primary));
+      --ul-accent-soft: var(--ct-accent-soft, rgba(var(--ct-primary-rgb), .08));
+      --ul-accent-border: var(--ct-accent-border, rgba(var(--ct-primary-rgb), .16));
+      --ul-surface: rgba(255,255,255,.97);
+      --ul-surface-soft: rgba(248,250,252,.9);
+      --ul-border: rgba(148,163,184,.16);
+      --ul-ink: #172033;
+      --ul-muted: #64748b;
+    }
+    .user-list-page .page-title-box{
+      min-height: 82px;
+      padding: 1rem 1.15rem;
+      border: 1px solid var(--ct-page-strip-border, var(--ul-border));
+      border-radius: 12px;
+      background: var(--ct-page-strip-bg, var(--ul-surface));
+      box-shadow: 0 12px 28px rgba(15,23,42,.045);
+    }
+    .user-list-page .page-title-main{
+      min-width: 0;
+    }
+    .user-list-page .page-title{
+      display: flex;
+      align-items: center;
+      gap: .5rem;
+      margin: 0;
+      color: var(--ul-ink);
+      font-size: 1.08rem;
+      font-weight: 750;
+    }
+    .user-list-page .page-title > i{
+      display: inline-flex;
+      width: 36px;
+      height: 36px;
+      align-items: center;
+      justify-content: center;
+      border-radius: 9px;
+      color: var(--ul-accent-end);
+      background: var(--ul-accent-soft);
+    }
+    .user-list-page .page-title-subtitle{
+      margin: .4rem 0 0 2.9rem;
+      color: var(--ul-muted);
+      font-size: .82rem;
+      line-height: 1.5;
+    }
+    .user-list-page .user-list-workspace{
+      overflow: hidden;
+      border: 1px solid var(--ul-border);
+      border-radius: 14px;
+      background: var(--ul-surface);
+      box-shadow: 0 18px 44px rgba(15,23,42,.06);
+    }
+    .user-list-page .user-list-tabs-wrap{
+      padding: .7rem .75rem;
+      border-bottom: 1px solid var(--ul-border);
+      background: linear-gradient(180deg, var(--ul-surface), var(--ul-surface-soft));
+    }
+    .user-list-page #userAccessTabs{
+      display: inline-flex;
+      gap: .45rem;
+      width: fit-content;
+      max-width: 100%;
+      margin: 0;
+      padding: .35rem;
+      border: 1px solid var(--ul-border);
+      border-radius: 13px;
+      background: var(--ul-surface-soft);
+    }
+    .user-list-page #userAccessTabs .nav-link{
+      display: inline-flex;
+      min-height: 42px;
+      align-items: center;
+      gap: .25rem;
+      padding: .58rem .9rem;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      color: var(--ul-muted);
+      font-weight: 700;
+      white-space: nowrap;
+      transition: .18s ease;
+    }
+    .user-list-page #userAccessTabs .nav-link i{
+      display: inline-flex;
+      width: 27px;
+      height: 27px;
+      align-items: center;
+      justify-content: center;
+      margin-left: -.3rem;
+      border-radius: 8px;
+      color: var(--ul-accent-end);
+      background: var(--ul-accent-soft);
+    }
+    .user-list-page #userAccessTabs .nav-link:hover{
+      color: var(--ul-accent-end);
+      border-color: var(--ul-accent-border);
+      background: var(--ul-surface);
+      transform: translateY(-1px);
+    }
+    .user-list-page #userAccessTabs .nav-link.active{
+      color: var(--ul-accent-end);
+      border-color: var(--ul-accent-border);
+      background: var(--ul-surface);
+      box-shadow: 0 7px 18px rgba(15,23,42,.07), inset 0 -3px 0 var(--ul-accent-end);
+    }
+    .user-list-page #userAccessTabs .nav-link.active i{
+      color: #fff;
+      background: linear-gradient(135deg, var(--ul-accent-start), var(--ul-accent-end));
+    }
+    .user-list-page #userAccessTabsContent{
+      padding: 1rem;
+    }
+    .user-list-page #userAccessTabsContent .dt-standard{
+      overflow: hidden;
+      border: 1px solid var(--ul-border);
+      border-radius: 10px;
+      box-shadow: none;
+    }
+    .user-list-page .user-access-table{
+      box-shadow: none;
+    }
+    .user-list-page .user-access-table thead th{
+      background: linear-gradient(180deg, var(--ul-accent-soft), var(--ul-surface-soft));
+      color: var(--ul-muted);
+    }
+    .user-list-page #userAccessTabsContent .dataTables_wrapper .dt-top-left,
+    .user-list-page #userAccessTabsContent .dataTables_wrapper .dt-top-right{
+      min-height: 48px;
+      align-items: center;
+    }
+    .user-list-page #userAccessTabsContent .dataTables_wrapper .form-control,
+    .user-list-page #userAccessTabsContent .dataTables_wrapper .form-select,
+    .user-list-page #userAccessTabsContent .dataTables_wrapper .btn{
+      min-height: 38px;
+      border-radius: 8px;
+    }
+    .user-list-page #userAccessTabsContent .dataTables_wrapper .btn-primary,
+    .user-list-page #userAccessTabsContent .dataTables_wrapper .btn-success{
+      border: 0;
+      background: linear-gradient(135deg, var(--ul-accent-start), var(--ul-accent-end));
+      box-shadow: 0 7px 16px rgba(var(--ct-primary-rgb), .15);
+    }
+    .user-list-page .modal-content{
+      border: 1px solid var(--ul-border);
+      border-radius: 13px;
+      box-shadow: 0 28px 72px rgba(15,23,42,.22) !important;
+    }
+    .user-list-page #userGroupModal .modal-header,
+    .user-list-page #roleExtraModal .modal-header,
+    .user-list-page #addUserModal .modal-header{
+      background: linear-gradient(135deg, var(--ul-accent-start), var(--ul-accent-end));
+    }
+    .user-list-page .form-section,
+    .user-list-page .info-card{
+      border-radius: 10px !important;
+      box-shadow: none !important;
+    }
+    .user-list-page #addUserModal .au-modal-tabs{
+      display: inline-flex;
+      flex-wrap: nowrap;
+      gap: .45rem;
+      width: fit-content;
+      max-width: 100%;
+      margin: 0 0 1rem;
+      padding: .35rem;
+      overflow-x: auto;
+      border: 1px solid var(--ul-border);
+      border-radius: 13px;
+      background: var(--ul-surface-soft);
+    }
+    .user-list-page #addUserModal .au-modal-tabs .nav-link{
+      display: inline-flex;
+      min-height: 42px;
+      align-items: center;
+      gap: .25rem;
+      margin: 0;
+      padding: .58rem .9rem;
+      border: 1px solid transparent;
+      border-radius: 10px;
+      color: var(--ul-muted);
+      background: transparent;
+      box-shadow: none;
+      font-weight: 700;
+      white-space: nowrap;
+      transition: .18s ease;
+    }
+    .user-list-page #addUserModal .au-modal-tabs .nav-link i{
+      display: inline-flex;
+      width: 27px;
+      height: 27px;
+      align-items: center;
+      justify-content: center;
+      margin-left: -.3rem;
+      border-radius: 8px;
+      color: var(--ul-accent-end);
+      background: var(--ul-accent-soft);
+    }
+    .user-list-page #addUserModal .au-modal-tabs .nav-link:hover{
+      color: var(--ul-accent-end);
+      border-color: var(--ul-accent-border);
+      background: var(--ul-surface);
+      transform: translateY(-1px);
+    }
+    .user-list-page #addUserModal .au-modal-tabs .nav-link.active{
+      color: var(--ul-accent-end);
+      border-color: var(--ul-accent-border);
+      background: var(--ul-surface);
+      box-shadow: 0 7px 18px rgba(15,23,42,.07), inset 0 -3px 0 var(--ul-accent-end);
+    }
+    .user-list-page #addUserModal .au-modal-tabs .nav-link.active i{
+      color: #fff;
+      background: linear-gradient(135deg, var(--ul-accent-start), var(--ul-accent-end));
+    }
+    [data-bs-theme="dark"] .user-list-page{
+      --ul-surface: rgba(20,27,39,.96);
+      --ul-surface-soft: rgba(30,41,59,.72);
+      --ul-border: rgba(148,163,184,.15);
+      --ul-ink: #f1f5f9;
+      --ul-muted: #9aa9bc;
+    }
+    @media (max-width: 767.98px){
+      .user-list-page .page-title-box{
+        align-items: flex-start !important;
+        gap: .7rem;
+      }
+      .user-list-page .page-title-subtitle{
+        margin-left: 0;
+      }
+      .user-list-page .user-list-tabs-wrap{
+        overflow-x: auto;
+      }
+      .user-list-page #userAccessTabs{
+        flex-wrap: nowrap;
+      }
+      .user-list-page #userAccessTabsContent{
+        padding: .7rem;
+      }
+    }
   </style>
 </head>
 
@@ -2282,7 +2617,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
   data-menu-color="<?= h($_SESSION['theme.menu'] ?? 'light') ?>"
   data-layout="vertical"
   data-sidebar-size="default"
-  class="loading">
+  class="loading user-list-page">
 
 <div class="wrapper">
   <?php include __DIR__ . '/../includes/topbar.php'; ?>
@@ -2296,7 +2631,10 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
         <div class="row mb-3">
           <div class="col-12">
             <div class="page-title-box d-flex justify-content-between align-items-center flex-wrap">
-              <h4 class="page-title"><i class="ri-user-settings-line me-1"></i> <?= __('userList_page_heading_main') ?></h4>
+              <div class="page-title-main">
+                <h4 class="page-title"><i class="ri-user-settings-line me-1"></i> <?= h(__('userList_page_heading_main')) ?></h4>
+                <p class="page-title-subtitle"><?= h(__('userList_page_intro')) ?></p>
+              </div>
               <div class="page-title-right">
                 <ol class="breadcrumb m-0">
                   <li class="breadcrumb-item">
@@ -2311,8 +2649,8 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
           </div>
         </div>
 
-        <div class="row mb-3">
-          <div class="col-12">
+        <section class="user-list-workspace">
+        <div class="user-list-tabs-wrap">
             <ul class="nav nav-tabs nav-bordered" id="userAccessTabs" role="tablist">
               <li class="nav-item" role="presentation">
                 <button
@@ -2356,7 +2694,6 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
                 </button>
               </li>
             </ul>
-          </div>
         </div>
 
         <div class="tab-content" id="userAccessTabsContent">
@@ -2386,6 +2723,8 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
               $currentUserStafIDNormalized,
               $currentUserNoPekerjaNormalized,
               $isSuperAdmin,
+              $dbMySQL,
+              $profile,
               'staff',
               (string)__('userList_col_name_staffid'),
               (string)__('userList_col_department'),
@@ -2420,6 +2759,8 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
               $currentUserStafIDNormalized,
               $currentUserNoPekerjaNormalized,
               $isSuperAdmin,
+              $dbMySQL,
+              $profile,
               'student',
               (string)__('userList_col_name_matric'),
               (string)__('userList_col_faculty'),
@@ -2454,6 +2795,8 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
               $currentUserStafIDNormalized,
               $currentUserNoPekerjaNormalized,
               $isSuperAdmin,
+              $dbMySQL,
+              $profile,
               'public',
               (string)__('userList_col_name_login'),
               (string)__('userList_col_university'),
@@ -2461,6 +2804,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
             ); ?>
           </div>
         </div>
+        </section>
 
       </div><!-- /.container-fluid -->
     </div><!-- /.content -->
@@ -2470,25 +2814,16 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
 
 <?php include __DIR__ . '/../includes/script.php'; ?>
 
-<!-- ✅ Select2 JS (untuk dropdown) -->
-<script src="<?= base_url('assets/vendor/select2/js/select2.min.js') ?>?v=<?= h($version) ?>" defer></script>
-
-<!-- Select2 JS (untuk dropdown staf dalam modal tambah pengguna) - NO defer, must load before our code -->
-<script>
-// Load Select2 synchronously to ensure it's available
-(function() {
-  var script = document.createElement('script');
-  script.src = '<?= base_url('assets/vendor/select2/js/select2.full.min.js') ?>?v=<?= time() ?>';
-  script.onload = function() {
-    window.__select2ScriptLoaded = true;
-  };
-  document.head.appendChild(script);
-})();
-</script>
+<!--
+  vendor.min.js dimuat secara defer dan mengandungi jQuery. Muat Select2 secara defer
+  selepas vendor supaya plugin melekat pada instance jQuery terakhir, bukan instance
+  awal yang kemudiannya diganti oleh bundle vendor.
+-->
+<script src="<?= base_url('assets/vendor/select2/js/select2.full.min.js') ?>?v=<?= h($version) ?>" defer></script>
 
 <!-- MODAL: Tukar Kumpulan -->
 <div class="modal fade" id="userGroupModal" tabindex="-1" aria-hidden="true" aria-labelledby="userGroupTitle">
-  <div class="modal-dialog modal-xl modal-dialog-centered">
+  <div class="modal-dialog modal-xl">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="userGroupTitle">
@@ -2702,7 +3037,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
 
 <!-- MODAL: Peranan Tambahan -->
 <div class="modal fade" id="roleExtraModal" tabindex="-1" aria-hidden="true" aria-labelledby="roleExtraTitle" data-bs-backdrop="static">
-  <div class="modal-dialog modal-lg modal-dialog-centered">
+  <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="roleExtraTitle">
@@ -2735,7 +3070,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
 
 <!-- MODAL: Tambah Pengguna -->
 <div class="modal fade" id="addUserModal" tabindex="-1" aria-hidden="true" aria-labelledby="addUserModalTitle">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="addUserModalTitle">
@@ -2909,7 +3244,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
                   </label>
                   <select class="form-select big-select" id="au_groupKod" required>
                     <option value=""><?= __('userList_modal_placeholder_select_group') ?></option>
-                    <?php foreach ($senaraiGroup as $g): ?>
+                    <?php foreach ($assignableGroup as $g): ?>
                       <option value="<?= h((string)($g['f_groupID'] ?? '')) ?>"><?= h($g['f_groupName']) ?></option>
                     <?php endforeach; ?>
                   </select>
@@ -2967,19 +3302,19 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
         'kod' => (string)($g['f_groupKod'] ?? ''),
         'nama' => (string)($g['f_groupName'] ?? ''),
         'categoryUser' => (string)($g['f_categoryUser'] ?? ''),
-      ], $senaraiGroupStaf), JSON_UNESCAPED_UNICODE) ?>,
+      ], $assignableGroupStaf), JSON_UNESCAPED_UNICODE) ?>,
       student: <?= json_encode(array_map(static fn($g) => [
         'id' => (int)($g['f_groupID'] ?? 0),
         'kod' => (string)($g['f_groupKod'] ?? ''),
         'nama' => (string)($g['f_groupName'] ?? ''),
         'categoryUser' => (string)($g['f_categoryUser'] ?? ''),
-      ], $senaraiGroupPelajar), JSON_UNESCAPED_UNICODE) ?>,
+      ], $assignableGroupPelajar), JSON_UNESCAPED_UNICODE) ?>,
       public: <?= json_encode(array_map(static fn($g) => [
         'id' => (int)($g['f_groupID'] ?? 0),
         'kod' => (string)($g['f_groupKod'] ?? ''),
         'nama' => (string)($g['f_groupName'] ?? ''),
         'categoryUser' => (string)($g['f_categoryUser'] ?? ''),
-      ], $senaraiGroupUmum), JSON_UNESCAPED_UNICODE) ?>
+      ], $assignableGroupUmum), JSON_UNESCAPED_UNICODE) ?>
     },
     COLORS: {
       GROUP_ADM_SA: '#ffe8e8',
@@ -3005,6 +3340,9 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
     nopekerja: '<?= h($currentUserNoPekerjaNormalized) ?>'
   };
   const isSuperAdmin = <?= $isSuperAdmin ? 'true' : 'false' ?>;
+  const canAddUsers = <?= $canAddUsers ? 'true' : 'false' ?>;
+  const canEditUsers = <?= $canEditUsers ? 'true' : 'false' ?>;
+  const canDeleteUsers = <?= $canDeleteUsers ? 'true' : 'false' ?>;
   const protectedStaffIds = <?= json_encode(array_values(defined('PRESTASI_PROTECTED_STAFF_IDS') && is_array(PRESTASI_PROTECTED_STAFF_IDS) ? PRESTASI_PROTECTED_STAFF_IDS : []), JSON_UNESCAPED_UNICODE) ?>;
 
   // ==================== HELPER FUNCTIONS ====================
@@ -3155,36 +3493,28 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
    * Loading overlay management
    */
   function showLoading(message = '<?= h(__('userList_processing')) ?>') {
-    hideLoading(); // Remove existing if any
-    const overlay = document.createElement('div');
-    overlay.id = 'loading-overlay';
-    overlay.className = 'loading-overlay';
-    overlay.style.cssText = `
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.5);
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      z-index: 9999;
-    `;
-    overlay.innerHTML = `
-      <div class="loading-spinner text-center" style="background: white; padding: 2rem; border-radius: 8px;">
-        <div class="spinner-border text-primary" role="status" style="width: 3rem; height: 3rem;">
-          <span class="visually-hidden"><?= h(__('userList_loading')) ?></span>
-        </div>
-        <p class="mt-3 mb-0">${message}</p>
-      </div>
-    `;
-    document.body.appendChild(overlay);
+    hideLoading();
+    window.__userListLoaderToken = message;
   }
 
   function hideLoading() {
-    const overlay = document.getElementById('loading-overlay');
-    if (overlay) overlay.remove();
+    window.__userListLoaderToken = null;
+  }
+
+  function showImpersonationBoxLoader(message = '<?= h(__('impersonation_loading_start') ?: 'Preparing View As...') ?>') {
+    if (window.showImpersonationBoxLoader) {
+      window.showImpersonationBoxLoader(message);
+      return;
+    }
+    showLoading(message);
+  }
+
+  function hideImpersonationBoxLoader() {
+    if (window.hideImpersonationBoxLoader) {
+      window.hideImpersonationBoxLoader();
+      return;
+    }
+    hideLoading();
   }
 
   // Select2 loading is handled inline where needed; remove unused helper to keep bundle small.
@@ -3403,7 +3733,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
     }
     
     // Update button data attributes if needed
-    if (isSuperAdmin) {
+    if (canEditUsers) {
       if (newData.name !== undefined || newData.loginID !== undefined || newData.email !== undefined) {
         const currentName = String(newData.name !== undefined ? newData.name : ($row.find('.btn-edit-group').attr('data-nama') || ''));
         const currentLoginID = String(newData.loginID !== undefined ? newData.loginID : ($row.find('.btn-edit-group').attr('data-loginid') || ''));
@@ -3506,12 +3836,15 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
       : isProtectedStaffAccountClient(stafID);
     const canEditGroup = (typeof r.can_edit_group !== 'undefined')
       ? !!r.can_edit_group
-      : ((typeof r.canEditGroup !== 'undefined') ? !!r.canEditGroup : isSuperAdmin);
+      : ((typeof r.canEditGroup !== 'undefined') ? !!r.canEditGroup : canEditUsers);
     const canDeleteUser = (typeof r.can_delete_user !== 'undefined')
       ? !!r.can_delete_user
       : ((typeof r.canDeleteUser !== 'undefined')
         ? !!r.canDeleteUser
         : (!isCurrentLoggedInUserTarget(userID, stafID, nopekerja) && !isProtectedAccount));
+    const canViewAsUser = (typeof r.can_view_as_user !== 'undefined')
+      ? !!r.can_view_as_user
+      : (!!isSuperAdmin && !isCurrentLoggedInUserTarget(userID, stafID, nopekerja) && !isProtectedAccount && String(gKod).trim().toUpperCase() !== 'ADM-SA' && parseInt(flag, 10) === 1 && loginID !== '');
 
     // Create row element using jQuery to avoid unsafe innerHTML with server HTML
     const $tr = $('<tr>')
@@ -3541,16 +3874,21 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
         .text(nameText)
     );
     const isAutoProvisioned = Number(r.f_isAutoProvisioned || r.is_auto_provisioned || 0) === 1;
-    if (isAutoProvisioned || isProtectedAccount) {
+    const identitySource = String(r.f_identitySource || r.identitySource || '').trim().toUpperCase();
+    const isSsoIdentity = identitySource === 'SSO';
+    const showSsoIndicator = isAutoProvisioned || isSsoIdentity;
+    if (showSsoIndicator || isProtectedAccount) {
       const $indicators = $('<span>').addClass('user-name-indicators');
-      if (isAutoProvisioned) {
-        const identitySource = String(r.f_identitySource || r.identitySource || 'SSO').trim().toUpperCase() || 'SSO';
+      if (showSsoIndicator) {
+        const indicatorTooltip = isAutoProvisioned
+          ? '<?= h(__('userList_auto_provisioned_tooltip')) ?>'.replace('%s', identitySource || 'SSO')
+          : '<?= h(__('userList_sso_identity_tooltip')) ?>';
         $indicators.append(
           $('<span>')
             .addClass('auto-provisioned-icon')
             .attr('data-bs-toggle', 'tooltip')
             .attr('data-bs-placement', 'top')
-            .attr('title', '<?= h(__('userList_auto_provisioned_tooltip')) ?>'.replace('%s', identitySource))
+            .attr('title', indicatorTooltip)
             .append($('<i>').addClass('ri-user-add-line'))
         );
       }
@@ -3631,6 +3969,15 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
     // Column: actions
     const $actionsTd = $('<td>').addClass('col-actions');
     if (canEditGroup) {
+      if (canViewAsUser) {
+        const $viewAsBtn = $('<button>').attr('type','button').addClass('btn btn-outline-warning btn-sm icon-btn btn-view-as-user')
+          .attr('title', '<?= h(__('impersonation_view_as_action')) ?>')
+          .attr('data-loginid', loginID)
+          .attr('data-nama', nama)
+          .attr('data-displayid', visibleIdentifier)
+          .html('<i class="ri-eye-line"></i>');
+        $actionsTd.append($viewAsBtn);
+      }
       const $editBtn = $('<button>').attr('type','button').addClass('btn btn-outline-primary btn-sm icon-btn btn-edit-group')
         .attr('title', '<?= h(__('userList_action_change_group')) ?>')
         .attr('data-user-id', userID)
@@ -3652,6 +3999,9 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
         .attr('data-scope', categoryUser === 'PELAJAR' ? 'student' : (categoryUser === 'UMUM' ? 'public' : 'staff'))
         .attr('data-flag', String(flag))
         .html('<i class="ri-pencil-line"></i>');
+      if (canViewAsUser) {
+        $editBtn.addClass('ms-1');
+      }
 
       $actionsTd.append($editBtn);
       if (canDeleteUser) {
@@ -4127,7 +4477,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
     }
     
     // Button Tambah Pengguna (Super Admin sahaja)
-    if (isSuperAdmin && !document.getElementById('btnAddUser')) {
+    if (canAddUsers && !document.getElementById('btnAddUser')) {
       const $addBtn = $('<button type="button" id="btnAddUser" class="btn btn-success" onclick="return window.userListOpenAdd ? window.userListOpenAdd(\'staff\') : false;">' +
           '<i class="ri-user-add-line me-1"></i> <?= h(__('userList_add_button')) ?>' +
         '</button>');
@@ -4430,7 +4780,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
       });
     }
 
-    if (isSuperAdmin && !document.getElementById(meta.addButtonId)) {
+    if (canAddUsers && !document.getElementById(meta.addButtonId)) {
       const $addBtn = $(`<button type="button" id="${meta.addButtonId}" class="btn btn-success" onclick="return window.userListOpenAdd ? window.userListOpenAdd('${meta.scope}') : false;"><i class="ri-user-add-line me-1"></i> ${addLabel}</button>`);
       $addBtn.attr('data-modal-bound', '1');
       $topRight.append($addBtn);
@@ -4833,6 +5183,15 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
       return (opt.textContent || '').trim();
     }
 
+    function escapeHtml(value) {
+      return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
     async function populateGroups(selectedId, scope = 'staff'){
       try{
         const groups = await fetchGroupsForScope(scope);
@@ -4850,11 +5209,108 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
 
     if (table){
       table.addEventListener('click', async function(e){
+        const viewAsBtn = e.target.closest('.btn-view-as-user');
+        if (viewAsBtn) {
+          e.preventDefault();
+          if (!canDeleteUsers) {
+            await fireSwal({
+              icon: 'info',
+              title: '<?= h(__('userList_error_title')) ?>',
+              text: '<?= h(__('userList_err_no_permission')) ?>',
+              confirmButtonText: '<?= h(__('userList_btn_ok')) ?>',
+              confirmButtonColor: '#6c757d'
+            });
+            return;
+          }
+
+          const targetLoginId = viewAsBtn.getAttribute('data-loginid') || '';
+          const targetName = viewAsBtn.getAttribute('data-nama') || targetLoginId;
+          const targetDisplayId = viewAsBtn.getAttribute('data-displayid') || targetLoginId;
+          let reason = '';
+          let impersonationMode = 'view_only';
+
+          if (window.Swal) {
+            const result = await Swal.fire({
+              icon: 'warning',
+              title: '<?= h(__('impersonation_start_title')) ?>',
+              width: 680,
+              html: `<div class="text-start small">
+                       <div class="mb-2"><?= h(__('impersonation_start_text')) ?></div>
+                       <div><strong>${escapeHtml(targetName)}</strong> <span class="text-muted">(${escapeHtml(targetDisplayId)})</span></div>
+                       <div class="mt-3">
+                         <label class="form-label fw-semibold mb-1"><?= h(__('impersonation_mode_label')) ?></label>
+                         <select class="form-select" id="impersonationModeSelect">
+                           <option value="view_only" selected><?= h(__('impersonation_mode_view_only')) ?></option>
+                           <option value="support_action"><?= h(__('impersonation_mode_support_action')) ?></option>
+                         </select>
+                         <div class="form-text"><?= h(__('impersonation_mode_help')) ?></div>
+                       </div>
+                     </div>`,
+              input: 'textarea',
+              inputLabel: '<?= h(__('impersonation_reason_label')) ?>',
+              inputPlaceholder: '<?= h(__('impersonation_reason_placeholder')) ?>',
+              inputAttributes: { maxlength: 500 },
+              showCancelButton: true,
+              confirmButtonText: '<?= h(__('impersonation_start_button')) ?>',
+              cancelButtonText: '<?= h(__('userList_modal_btn_cancel')) ?>',
+              confirmButtonColor: '#f59e0b',
+              preConfirm: (value) => {
+                const clean = String(value || '').trim();
+                if (!clean) {
+                  Swal.showValidationMessage('<?= h(__('impersonation_reason_required')) ?>');
+                  return false;
+                }
+                return clean;
+              }
+            });
+            if (!result.isConfirmed) return;
+            reason = String(result.value || '').trim();
+            impersonationMode = String(document.getElementById('impersonationModeSelect')?.value || 'view_only');
+          } else {
+            reason = String(prompt('<?= h(__('impersonation_reason_label')) ?>') || '').trim();
+            if (!reason) return;
+          }
+
+          const originalHtml = viewAsBtn.innerHTML;
+          viewAsBtn.disabled = true;
+          viewAsBtn.innerHTML = '<i class="ri-loader-4-line ri-spin"></i>';
+          showImpersonationBoxLoader('<?= h(__('impersonation_loading_start') ?: 'Preparing View As...') ?>');
+          try {
+            const form = new FormData();
+            form.set('csrf_token', CSRF);
+            form.set('target_login_id', targetLoginId);
+            form.set('reason', reason);
+            form.set('mode', impersonationMode);
+            const response = await fetch('<?= base_url('ajax/impersonation-start.php') ?>', {
+              method: 'POST',
+              body: form,
+              credentials: 'same-origin',
+              headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.success !== true) {
+              throw new Error(data.message || '<?= h(__('impersonation_start_failed')) ?>');
+            }
+            window.location.href = data.redirect || '<?= base_url('pages/dashboard.php') ?>';
+          } catch (error) {
+            hideImpersonationBoxLoader();
+            viewAsBtn.disabled = false;
+            viewAsBtn.innerHTML = originalHtml;
+            await fireSwal({
+              icon: 'error',
+              title: '<?= h(__('userList_error_title')) ?>',
+              text: error.message || '<?= h(__('impersonation_start_failed')) ?>',
+              confirmButtonText: '<?= h(__('userList_btn_ok')) ?>'
+            });
+          }
+          return;
+        }
+
         // Handle delete button click
         const deleteBtn = e.target.closest('.btn-delete-user');
         if (deleteBtn) {
           e.preventDefault();
-          if (!isSuperAdmin) {
+          if (!canDeleteUsers) {
             await fireSwal({
               icon: 'info',
               title: '<?= h(__('userList_error_title')) ?>',
@@ -4897,7 +5353,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
             await fireSwal({
               icon: 'info',
               title: '<?= h(__('userList_error_title')) ?>',
-              text: 'Anda tidak boleh memadam akaun yang sedang anda gunakan sekarang.',
+              text: '<?= h(__('userList_ajax_delete_self_denied')) ?>',
               confirmButtonText: '<?= h(__('userList_btn_ok')) ?>',
               confirmButtonColor: '#0d6efd'
             });
@@ -5014,7 +5470,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
         // Handle edit button click
         const btn = e.target.closest('.btn-edit-group'); 
         if (!btn || !modal) return;
-        if (!isSuperAdmin) {
+        if (!canEditUsers) {
           await fireSwal({
             icon: 'info',
             title: '<?= h(__('userList_error_title')) ?>',
@@ -5878,6 +6334,33 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
               }
             }
 
+            function bindSelect2SearchField(searchPlaceholder) {
+              $sel.off('select2:open.userListSearch').on('select2:open.userListSearch', function() {
+                window.requestAnimationFrame(function() {
+                  const searchField = addUserModalEl.querySelector(
+                    '.select2-container--open .select2-search--dropdown .select2-search__field'
+                  );
+                  if (!searchField) return;
+                  searchField.setAttribute('placeholder', searchPlaceholder);
+                  searchField.setAttribute('aria-label', searchPlaceholder);
+                  searchField.focus();
+                });
+              });
+            }
+
+            function syncSelect2Placeholder(selectionPlaceholder) {
+              // jQuery menyimpan nilai data-* pertama dalam cache. Apabila modal
+              // bertukar staf -> pelajar, buang cache lama dan selaraskan teks
+              // selection yang telah dirender oleh Select2.
+              $sel.removeData('placeholder');
+              $sel.attr('data-placeholder', selectionPlaceholder);
+              const placeholderEl = $sel.next('.select2-container')
+                .find('.select2-selection__placeholder');
+              if (placeholderEl.length) {
+                placeholderEl.text(selectionPlaceholder).attr('title', selectionPlaceholder);
+              }
+            }
+
             if (currentAddScope === 'student') {
               auStafSelect.innerHTML = '<option value=""></option>';
               $sel.select2({
@@ -5911,7 +6394,9 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
                   }
                 }
               });
+              bindSelect2SearchField(placeholderText);
               $sel.val(null).trigger('change');
+              syncSelect2Placeholder(placeholderText);
               return;
             }
 
@@ -5970,9 +6455,12 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
               width: '100%',
               allowClear: true,
               placeholder: placeholderText,
+              minimumResultsForSearch: 0,
               dropdownParent: $(addUserModalEl)
             });
+            bindSelect2SearchField(placeholderText);
             $sel.val('').trigger('change');
+            syncSelect2Placeholder(placeholderText);
           });
 
           $(auStafSelect).on('select2:select', function(e) {
@@ -6098,7 +6586,19 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
             width: '100%',
             allowClear: true,
             placeholder: placeholderText,
+            minimumResultsForSearch: 0,
             dropdownParent: jQuery(addUserModalEl)
+          });
+          $sel.off('select2:open.userListSearch').on('select2:open.userListSearch', function() {
+            window.requestAnimationFrame(function() {
+              const searchField = addUserModalEl.querySelector(
+                '.select2-container--open .select2-search--dropdown .select2-search__field'
+              );
+              if (!searchField) return;
+              searchField.setAttribute('placeholder', placeholderText);
+              searchField.setAttribute('aria-label', placeholderText);
+              searchField.focus();
+            });
           });
           $sel.val('').trigger('change');
         }
@@ -6107,12 +6607,11 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
       }
     }
     
-    // Start initialization - wait for DOM ready
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', initSelect2ForModal);
-    } else {
-      // DOM already ready, start immediately
+    // Tunggu semua skrip defer siap supaya Select2 menggunakan instance jQuery terakhir.
+    if (document.readyState === 'complete') {
       initSelect2ForModal();
+    } else {
+      window.addEventListener('load', initSelect2ForModal, { once: true });
     }
 
     document.addEventListener('click', async function(e) {
@@ -6278,8 +6777,8 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
           showAddModalTab('#au-info-tab');
         }
         showAuErr(currentAddScope === 'public'
-          ? 'Sila lengkapkan semua maklumat wajib dan pastikan emel serta kata laluan adalah sah.'
-          : 'Sila lengkapkan maklumat pengguna dan tetapan akses sebelum simpan.');
+          ? '<?= h(__('userList_validation_required_public')) ?>'
+          : '<?= h(__('userList_validation_required_access')) ?>');
         return; // Stop submission if validation fails
       }
       
@@ -6410,4 +6909,3 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
 
 </body>
 </html>
-

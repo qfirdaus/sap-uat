@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 if (defined('ACCESS_POLICY_CONSTANTS_INCLUDED')) {
     return;
@@ -54,6 +61,7 @@ if (!defined('ACCESS_POLICY_PUBLIC_LOGGED_IN_AJAX')) {
         'ajax/profile-audit-events.php',
         'ajax/profile-kill-session.php',
         'ajax/profile-login-activity.php',
+        'ajax/impersonation-stop.php',
         'ajax/role-switch-roles.php',
         'ajax/role-switch.php',
         'ajax/session-keepalive.php',
@@ -78,6 +86,7 @@ if (!defined('ACCESS_POLICY_SUPER_ADMIN_ONLY_AJAX')) {
         'ajax/group-list.php',
         'ajax/group-perms-get.php',
         'ajax/group-perms-save.php',
+        'ajax/impersonation-start.php',
         'ajax/menu-create.php',
         'ajax/menu-delete.php',
         'ajax/menu-flag-toggle.php',
@@ -112,6 +121,7 @@ if (!defined('ACCESS_POLICY_SUPER_ADMIN_ONLY_AJAX')) {
  */
 if (!defined('ACCESS_POLICY_CUSTOM_GUARD_AJAX')) {
     define('ACCESS_POLICY_CUSTOM_GUARD_AJAX', [
+        'ajax/manual-delete.php',
         'ajax/manual-sync-groups.php',
         'ajax/manual-upload.php',
         'ajax/manual-view.php',

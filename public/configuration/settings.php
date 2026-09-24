@@ -1,5 +1,12 @@
 <?php
-
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 return [
     // Maklumat asas laman:
     // - title: nama sistem untuk title browser / fallback paparan umum
@@ -37,7 +44,7 @@ return [
     // - support: emel sokongan global
     'system' => [
         'name'        => 'Base System',
-        'version'     => '1.7.4',
+        'version'     => '1.9.8',
         'author'      => 'Sistem Induk',
         'meta_author' => 'Base System',
         'support'     => 'support@example.com',
@@ -57,6 +64,12 @@ return [
     // - idle_timeout_minutes: had masa tiada aktiviti sebelum prompt sesi tamat dipaparkan
     'session' => [
         'idle_timeout_minutes' => 30,
+    ],
+
+    // Tetapan Admin View As:
+    // - timeout_minutes: had masa sesi View As sebelum dipulihkan semula
+    'impersonation' => [
+        'timeout_minutes' => 60,
     ],
 
     // Tetapan had muat naik fail:

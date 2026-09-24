@@ -1,4 +1,12 @@
-<?php 
+<?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 /**
  * Footer Component
  * 
@@ -241,6 +249,9 @@ function set_confirm(message, confirmText = <?= json_encode(__('logout_alert_tit
             console.error('[Footer] set_confirm: onConfirm callback error:', e);
           }
         } else if (redirectUrl && typeof redirectUrl === 'string') {
+          if (window.AppLoader && typeof window.AppLoader.show === 'function') {
+            window.AppLoader.show((window.IQS_LOADER_I18N && window.IQS_LOADER_I18N.logout) || confirmText);
+          }
           window.location.href = redirectUrl;
         }
       }

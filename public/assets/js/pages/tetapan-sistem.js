@@ -20,6 +20,21 @@
     }
   }
 
+  const tetapanLoaderTokens = {};
+
+  function showTetapanLoader(key, message) {
+    hideTetapanLoader(key);
+    const text = message || (getTetapanTranslator()('config_js_btn_loading_save') || 'Saving...');
+    tetapanLoaderTokens[key] = text;
+  }
+
+  function hideTetapanLoader(key) {
+    if (!tetapanLoaderTokens[key]) {
+      return;
+    }
+    delete tetapanLoaderTokens[key];
+  }
+
   function rememberActiveTab(tabSelector) {
     if (!tabSelector) {
       return;
@@ -85,6 +100,7 @@
     }
 
     fallbackSetButtonLoading(button, true);
+    showTetapanLoader('fallbackSubmit', __('config_js_saving_changes') || __('config_js_btn_loading_save') || 'Saving...');
 
     const formData = new FormData(form);
     formData.set('ajax', '1');
@@ -136,6 +152,7 @@
       })
       .finally(function () {
         fallbackSetButtonLoading(button, false);
+        hideTetapanLoader('fallbackSubmit');
       });
 
     return true;
@@ -202,6 +219,7 @@
         btnUji.dataset.originalHtml = btnUji.innerHTML;
       }
       btnUji.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> ' + (__('config_js_uji_emel_btn_loading') || 'Testing...');
+      showTetapanLoader('fallbackEmailTest', __('config_js_uji_emel_btn_loading') || 'Testing...');
 
       fetch(baseUrl + 'ajax/uji-emel.php', {
         method: 'POST',
@@ -238,20 +256,21 @@
         .finally(function () {
           btnUji.disabled = false;
           btnUji.innerHTML = btnUji.dataset.originalHtml || '<i class="ri-mail-send-line me-1"></i> ' + (__('config_js_uji_emel_btn_default') || 'Uji Sambungan Emel');
+          hideTetapanLoader('fallbackEmailTest');
         });
     });
 
     return false;
   }
 
-  window.__tetapanSubmitFormWithValidation = window.__tetapanSubmitFormWithValidation || function (form, button) {
+  window.__tetapanSubmitFormWithValidation = function (form, button) {
     if (typeof window.__tetapanSubmitFormWithValidationImpl === 'function') {
       return window.__tetapanSubmitFormWithValidationImpl(form, button);
     }
     return fallbackSubmitAjax(form, button);
   };
 
-  window.__tetapanHandleEmailTest = window.__tetapanHandleEmailTest || function () {
+  window.__tetapanHandleEmailTest = function () {
     if (typeof window.__tetapanHandleEmailTestImpl === 'function') {
       return window.__tetapanHandleEmailTestImpl();
     }
@@ -265,6 +284,9 @@
     const csrfToken = typeof config.csrfToken === 'string' ? config.csrfToken : '';
     const initialDbSelection = config.initialDbSelection || {};
     let additionalConnections = Array.isArray(config.additionalConnections) ? config.additionalConnections.slice() : [];
+    let additionalDiagnostics = config.additionalDiagnostics && typeof config.additionalDiagnostics === 'object'
+      ? config.additionalDiagnostics
+      : {};
     const pageUiHelper = window.PageUiHelper || {};
     const formRuntimeState = new WeakMap();
     const buildAssetUrl = function (assetPath) {
@@ -489,9 +511,50 @@
 
     window.__tetapanApplyRuntimeTranslations = applyRuntimeTranslations;
 
-    const applyGeneralSettings = function (generalSettings) {
+    const normalizeServerBoolean = function (value) {
+      if (typeof value === 'boolean') {
+        return value;
+      }
+      if (typeof value === 'number') {
+        return value === 1;
+      }
+      return ['1', 'true', 'on', 'yes'].indexOf(String(value == null ? '' : value).trim().toLowerCase()) !== -1;
+    };
+
+    const applyGeneralSettings = function (generalSettings, form) {
       if (!generalSettings) {
         return;
+      }
+
+      if (form) {
+        var generalFieldMap = {
+          'site.title': 'site_title',
+          'site.favicon': 'site_favicon',
+          'site.default_home': 'site_default_home',
+          'system.name': 'system_name',
+          'system.meta_author': 'system_meta_author',
+          'system.support': 'system_support',
+          'branding.topbar_logo_light': 'branding_topbar_logo_light',
+          'branding.topbar_logo_dark': 'branding_topbar_logo_dark',
+          'branding.topbar_logo_sm': 'branding_topbar_logo_sm',
+          'branding.sidebar_logo': 'branding_sidebar_logo',
+          'branding.sidebar_user_image': 'branding_sidebar_user_image',
+          'session.idle_timeout_minutes': 'session_idle_timeout_minutes',
+          'impersonation.timeout_minutes': 'impersonation_timeout_minutes',
+          'upload.manual_max_mb': 'upload_manual_max_mb',
+          'organization.name': 'organization_name',
+          'organization.short': 'organization_short',
+          'organization.website': 'organization_website',
+          'footer.text.ms': 'footer_text_ms',
+          'footer.text.en': 'footer_text_en',
+          'mail.system_name': 'mail_system_name',
+          'mail.default_action_url': 'mail_default_action_url',
+          'mail.footer_note.ms': 'mail_footer_note_ms',
+          'mail.footer_note.en': 'mail_footer_note_en'
+        };
+        Object.keys(generalFieldMap).forEach(function (key) {
+          setFormFieldValue(form, generalFieldMap[key], generalSettings[key]);
+        });
       }
 
       var siteTitle = String(generalSettings['site.title'] || '').trim();
@@ -581,30 +644,30 @@
       };
 
       var values = {
-        auth_maintenance_mode: !!authSettings.maintenance_mode,
-        auth_login_enable_staf: !!categories.staf,
-        auth_login_enable_pelajar: !!categories.pelajar,
-        auth_login_enable_umum: !!categories.umum,
-        auth_auto_provision_staf_sso: !!provisioning.staf_sso_enabled,
-        auth_auto_provision_pelajar_sso: !!provisioning.pelajar_sso_enabled,
+        auth_maintenance_mode: normalizeServerBoolean(authSettings.maintenance_mode),
+        auth_login_enable_staf: normalizeServerBoolean(categories.staf),
+        auth_login_enable_pelajar: normalizeServerBoolean(categories.pelajar),
+        auth_login_enable_umum: normalizeServerBoolean(categories.umum),
+        auth_auto_provision_staf_sso: normalizeServerBoolean(provisioning.staf_sso_enabled),
+        auth_auto_provision_pelajar_sso: normalizeServerBoolean(provisioning.pelajar_sso_enabled),
         auth_default_group_staff_code: valueOr(provisioning.default_group_staff_code, 'ADM-STAF'),
         auth_default_group_student_code: valueOr(provisioning.default_group_student_code, 'ADM-STUDENT'),
         auth_password_min_length: valueOr(password.min_length, 8),
         auth_password_expiry_days: valueOr(password.expiry_days, 90),
         auth_password_history_count: valueOr(password.history_count, 5),
         auth_password_reset_token_minutes: valueOr(password.reset_token_minutes, 30),
-        auth_password_require_uppercase: !!password.require_uppercase,
-        auth_password_require_lowercase: !!password.require_lowercase,
-        auth_password_require_number: !!password.require_number,
-        auth_password_require_symbol: !!password.require_symbol,
-        auth_password_block_loginid_variants: !!password.block_loginid_variants,
+        auth_password_require_uppercase: normalizeServerBoolean(password.require_uppercase),
+        auth_password_require_lowercase: normalizeServerBoolean(password.require_lowercase),
+        auth_password_require_number: normalizeServerBoolean(password.require_number),
+        auth_password_require_symbol: normalizeServerBoolean(password.require_symbol),
+        auth_password_block_loginid_variants: normalizeServerBoolean(password.block_loginid_variants),
         auth_login_max_attempts: valueOr(loginSecurity.max_attempts, 3),
         auth_login_lock_seconds: valueOr(loginSecurity.lock_seconds, 60),
         auth_login_identifier_ip_max_attempts: valueOr(loginSecurity.identifier_ip_max_attempts, 5),
         auth_login_identifier_ip_lock_seconds: valueOr(loginSecurity.identifier_ip_lock_seconds, 300),
         auth_login_ip_max_attempts: valueOr(loginSecurity.ip_max_attempts, 10),
         auth_login_ip_lock_seconds: valueOr(loginSecurity.ip_lock_seconds, 300),
-        auth_sso_enabled: !!sso.enabled,
+        auth_sso_enabled: normalizeServerBoolean(sso.enabled),
         auth_sso_mode: valueOr(sso.mode, 'MANUAL'),
         auth_sso_site_id: valueOr(integration.site_id, ''),
         auth_sso_idp_domain: valueOr(integration.idp_domain, ''),
@@ -679,8 +742,8 @@
       feedback.setAttribute('data-settings-save-feedback', '1');
       feedback.setAttribute('aria-live', 'polite');
       feedback.innerHTML = ''
-        + '<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" data-save-feedback-badge>Belum simpan</span>'
-        + '<span class="text-muted" data-save-feedback-text>Belum ada perubahan.</span>';
+        + '<span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle" data-save-feedback-badge>' + escapeHtml(__('config_js_save_feedback_idle_badge') || 'Not saved') + '</span>'
+        + '<span class="text-muted" data-save-feedback-text>' + escapeHtml(__('config_js_save_feedback_idle_text') || 'No new changes to save.') + '</span>';
 
       var buttonGroup = button && button.parentElement && button.parentElement !== actions && button.parentElement.classList.contains('d-flex')
         ? button.parentElement
@@ -707,32 +770,32 @@
       var text = host.querySelector('[data-save-feedback-text]');
       var badgeMap = {
         idle: {
-          badge: 'Belum simpan',
+          badge: __('config_js_save_feedback_idle_badge') || 'Not saved',
           className: 'badge bg-secondary-subtle text-secondary border border-secondary-subtle',
           textClass: 'text-muted'
         },
         dirty: {
-          badge: 'Perubahan',
+          badge: __('config_js_save_feedback_dirty_badge') || 'Changed',
           className: 'badge bg-warning-subtle text-warning border border-warning-subtle',
           textClass: 'text-warning-emphasis'
         },
         saving: {
-          badge: 'Menyimpan',
+          badge: __('config_js_save_feedback_saving_badge') || 'Saving',
           className: 'badge bg-primary-subtle text-primary border border-primary-subtle',
           textClass: 'text-primary-emphasis'
         },
         success: {
-          badge: 'Disimpan',
+          badge: __('config_js_save_feedback_success_badge') || 'Saved',
           className: 'badge bg-success-subtle text-success border border-success-subtle',
           textClass: 'text-success-emphasis'
         },
         warning: {
-          badge: 'Amaran',
+          badge: __('config_js_save_feedback_warning_badge') || 'Warning',
           className: 'badge bg-warning-subtle text-warning border border-warning-subtle',
           textClass: 'text-warning-emphasis'
         },
         error: {
-          badge: 'Ralat',
+          badge: __('config_js_save_feedback_error_badge') || 'Error',
           className: 'badge bg-danger-subtle text-danger border border-danger-subtle',
           textClass: 'text-danger-emphasis'
         }
@@ -763,21 +826,21 @@
 
       var dirty = state.snapshot !== serializeFormState(form);
       if (dirty) {
-        setSaveFeedbackState(form, button, 'dirty', 'Perubahan belum disimpan.');
+        setSaveFeedbackState(form, button, 'dirty', __('config_js_save_feedback_dirty_text') || 'Changes have not been saved.');
         return;
       }
 
       if (state.lastState === 'success') {
-        setSaveFeedbackState(form, button, 'success', 'Perubahan terkini sudah disimpan.');
+        setSaveFeedbackState(form, button, 'success', __('config_js_save_feedback_success_text') || 'The latest changes have been saved.');
         return;
       }
 
       if (state.lastState === 'warning') {
-        setSaveFeedbackState(form, button, 'warning', 'Tetapan disimpan tetapi ada amaran yang perlu disemak.');
+        setSaveFeedbackState(form, button, 'warning', __('config_js_save_feedback_warning_text') || 'Settings were saved, but there are warnings to review.');
         return;
       }
 
-      setSaveFeedbackState(form, button, 'idle', 'Belum ada perubahan baru untuk disimpan.');
+      setSaveFeedbackState(form, button, 'idle', __('config_js_save_feedback_idle_text') || 'No new changes to save.');
     };
 
     const refreshEmailRuntimeSummary = function (emailSettings) {
@@ -965,6 +1028,50 @@
       refreshLanguageRuntimeSummary(languageData);
       if (defaultLanguage) {
         applyRuntimeTranslations(defaultLanguage);
+      }
+    };
+
+    const syncAiChatbotFormState = function (form, settings) {
+      if (!form || !settings) {
+        return;
+      }
+
+      var mapping = {
+        enabled: 'ai_chatbot_enabled',
+        access_mode: 'ai_chatbot_access_mode',
+        allowed_groups: 'ai_chatbot_allowed_groups',
+        provider: 'ai_chatbot_provider',
+        model: 'ai_chatbot_model',
+        base_url: 'ai_chatbot_base_url',
+        timeout_seconds: 'ai_chatbot_timeout_seconds',
+        max_input_chars: 'ai_chatbot_max_input_chars',
+        max_output_tokens: 'ai_chatbot_max_output_tokens',
+        rate_limit_per_minute: 'ai_chatbot_rate_limit_per_minute',
+        user_daily_request_limit: 'ai_chatbot_user_daily_request_limit',
+        global_daily_request_limit: 'ai_chatbot_global_daily_request_limit',
+        persist_usage: 'ai_chatbot_persist_usage',
+        store_conversations: 'ai_chatbot_store_conversations',
+        log_message_content: 'ai_chatbot_log_message_content',
+        character_name: 'ai_chatbot_character_name',
+        character_avatar: 'ai_chatbot_character_avatar',
+        welcome_message: 'ai_chatbot_welcome_message',
+        app_url: 'ai_chatbot_app_url',
+        app_title: 'ai_chatbot_app_title'
+      };
+      var booleanKeys = ['enabled', 'persist_usage', 'store_conversations', 'log_message_content'];
+
+      Object.keys(mapping).forEach(function (key) {
+        var value = booleanKeys.indexOf(key) !== -1 ? normalizeServerBoolean(settings[key]) : settings[key];
+        setFormFieldValue(form, mapping[key], value);
+      });
+
+      var apiKey = form.querySelector('[name="ai_chatbot_api_key"]');
+      if (apiKey) {
+        apiKey.value = '';
+      }
+      var modelSelect = form.querySelector('[name="ai_chatbot_model"]');
+      if (modelSelect && window.jQuery && window.jQuery.fn && window.jQuery.fn.select2) {
+        window.jQuery(modelSelect).trigger('change.select2');
       }
     };
 
@@ -1175,6 +1282,9 @@
         additionalConnections = payload.data.additionalConnections.slice();
         renderAdditionalConnectionsTable();
       }
+      if (payload.tab === 'db' && payload.data && payload.data.additionalDiagnostics) {
+        renderAdditionalDiagnostics(payload.data.additionalDiagnostics);
+      }
 
       if (payload.tab === 'theme' && payload.data && payload.data.themeSettings) {
         applySavedThemeSettings(payload.data.themeSettings);
@@ -1182,7 +1292,7 @@
       }
 
       if (payload.tab === 'general' && payload.data && payload.data.generalSettings) {
-        applyGeneralSettings(payload.data.generalSettings);
+        applyGeneralSettings(payload.data.generalSettings, form);
       }
 
       if (payload.tab === 'email' && payload.data && payload.data.emailSettings) {
@@ -1199,6 +1309,10 @@
         if (typeof window.__tetapanRefreshAuthPolicySummary === 'function') {
           window.__tetapanRefreshAuthPolicySummary();
         }
+      }
+
+      if (payload.tab === 'ai-chatbot' && payload.data && payload.data.aiChatbotSettings) {
+        syncAiChatbotFormState(form, payload.data.aiChatbotSettings);
       }
     };
     window.__tetapanApplyPayloadUiSync = applyPayloadUiSync;
@@ -1225,6 +1339,10 @@
     const dbAdditionalSaveButton = document.getElementById('btn-db-additional-save');
     const dbAdditionalEnvRows = document.getElementById('db-additional-env-rows');
     const dbAdditionalEnvAddButton = document.getElementById('btn-db-additional-env-add');
+    const dbAdditionalDiagnostics = document.getElementById('db-additional-diagnostics');
+    const dbAdditionalDiagnosticsSummary = document.getElementById('db-additional-diagnostics-summary');
+    const dbAdditionalDiagnosticsCount = document.getElementById('db-additional-diagnostics-count');
+    const dbAdditionalDiagnosticsWarnings = document.getElementById('db-additional-diagnostics-warnings');
 
     const escapeHtml = function (value) {
       return String(value == null ? '' : value)
@@ -1233,6 +1351,52 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#039;');
+    };
+
+    const renderAdditionalDiagnostics = function (diagnostics) {
+      if (!dbAdditionalDiagnostics || !diagnostics || typeof diagnostics !== 'object') {
+        return;
+      }
+
+      additionalDiagnostics = diagnostics;
+      var status = String(diagnostics.status || 'healthy');
+      var tone = status === 'attention' ? 'danger' : (status === 'warning' ? 'warning' : 'success');
+      dbAdditionalDiagnostics.classList.remove('alert-success', 'alert-warning', 'alert-danger');
+      dbAdditionalDiagnostics.classList.add('alert-' + tone);
+
+      if (dbAdditionalDiagnosticsSummary) {
+        var drivers = Array.isArray(diagnostics.available_drivers) && diagnostics.available_drivers.length
+          ? diagnostics.available_drivers.join(', ')
+          : 'none';
+        dbAdditionalDiagnosticsSummary.textContent = [
+          'Runtime ' + String(diagnostics.runtime_os || '-').toUpperCase(),
+          'PDO ' + drivers,
+          additionalLabel('config_tab_db_additional_diagnostics_enabled', '%s enabled').replace('%s', String(diagnostics.enabled_count || 0)),
+          additionalLabel('config_tab_db_additional_diagnostics_active_rows', '%s active environment rows').replace('%s', String(diagnostics.active_env_count || 0)),
+          String((diagnostics.platform_coverage && diagnostics.platform_coverage.available_count) || 0)
+            + '/' + String((diagnostics.platform_coverage && diagnostics.platform_coverage.required_count) || 0)
+            + ' platform coverage'
+        ].join(' · ');
+      }
+
+      if (dbAdditionalDiagnosticsCount) {
+        dbAdditionalDiagnosticsCount.classList.remove('bg-success', 'bg-warning', 'bg-danger');
+        dbAdditionalDiagnosticsCount.classList.add('bg-' + tone);
+        dbAdditionalDiagnosticsCount.textContent = additionalLabel('config_tab_db_additional_diagnostics_warning_count', '%s warning(s)')
+          .replace('%s', String(diagnostics.warning_count || 0));
+      }
+
+      if (dbAdditionalDiagnosticsWarnings) {
+        var warnings = Array.isArray(diagnostics.warnings) ? diagnostics.warnings : [];
+        dbAdditionalDiagnosticsWarnings.classList.toggle('d-none', warnings.length === 0);
+        dbAdditionalDiagnosticsWarnings.innerHTML = warnings.slice(0, 8).map(function (warning) {
+          return '<li><code>' + escapeHtml(warning.connection_code || '-') + '</code> — '
+            + escapeHtml(warning.message || '') + '</li>';
+        }).join('') + (warnings.length > 8
+          ? '<li>' + escapeHtml(additionalLabel('config_tab_db_additional_diagnostics_more_warnings', '%s more warning(s) are not shown.')
+              .replace('%s', String(warnings.length - 8))) + '</li>'
+          : '');
+      }
     };
 
     const getAdditionalConnectionFilters = function () {
@@ -1393,7 +1557,23 @@
       if (!rows.length) {
         return null;
       }
-      return rows.find(function (row) { return !!Number(row.f_is_active || 0); }) || rows[0];
+      var runtimeOs = String((additionalDiagnostics && additionalDiagnostics.runtime_os) || '').toLowerCase();
+      var availableDrivers = Array.isArray(additionalDiagnostics && additionalDiagnostics.available_drivers)
+        ? additionalDiagnostics.available_drivers.map(function (driver) { return String(driver).toLowerCase(); })
+        : [];
+      var candidates = rows.filter(function (row) {
+        var rowOs = String(row.f_os_family || 'any').toLowerCase();
+        var driver = String(row.f_driver || '').toLowerCase();
+        return !!Number(row.f_is_active || 0)
+          && (rowOs === runtimeOs || rowOs === 'any')
+          && (!availableDrivers.length || availableDrivers.indexOf(driver) !== -1);
+      });
+      candidates.sort(function (left, right) {
+        var leftExact = String(left.f_os_family || 'any').toLowerCase() === runtimeOs ? 0 : 1;
+        var rightExact = String(right.f_os_family || 'any').toLowerCase() === runtimeOs ? 0 : 1;
+        return leftExact - rightExact;
+      });
+      return candidates[0] || null;
     };
 
     const buildAdditionalSampleCodeBlock = function (title, code) {
@@ -2155,6 +2335,7 @@
           var preview = payload.data.objectPreview;
           var columns = Array.isArray(preview.columns) ? preview.columns : [];
           var rows = Array.isArray(preview.rows) ? preview.rows : [];
+          var maskedColumns = Array.isArray(preview.masked_columns) ? preview.masked_columns : [];
           var headerHtml = columns.map(function (column) {
             return '<th>' + escapeHtml(column) + '</th>';
           }).join('') + '<th class="text-start db-preview-toggle-cell">Paparan</th>';
@@ -2175,6 +2356,12 @@
             + buildAdditionalViewMetaItem(additionalLabel('config_tab_db_additional_env', 'Environment'), escapeHtml(preview.environment || '-'))
             + buildAdditionalViewMetaItem(additionalLabel('config_tab_db_additional_database', 'Database'), escapeHtml(preview.database_name || '-'))
             + '</div>'
+            + (maskedColumns.length || Number(preview.truncated_values || 0) || Number(preview.binary_values || 0)
+              ? '<div class="alert alert-warning py-2 small">Preview protection: '
+                + escapeHtml(String(maskedColumns.length)) + ' masked column(s), '
+                + escapeHtml(String(preview.truncated_values || 0)) + ' truncated value(s), '
+                + escapeHtml(String(preview.binary_values || 0)) + ' binary value(s).</div>'
+              : '')
             + '<div class="db-additional-view-card">'
             + '<div class="db-additional-view-card-header"><h6 class="db-additional-view-card-title"><i class="ri-file-search-line"></i> ' + escapeHtml(__('config_tab_db_additional_data_preview_title') || 'Data Preview') + '</h6></div>'
             + '<div class="db-additional-view-card-body"><div class="db-additional-view-table-wrap">'
@@ -2293,6 +2480,36 @@
       }
     };
 
+    const appendPlatformPreset = function (osFamily, driver) {
+      if (!dbAdditionalEnvRows) {
+        return;
+      }
+      var environment = document.getElementById('db-additional-supports-prod').checked ? 'production' : 'development';
+      var rows = serializeAdditionalEnvRows();
+      var duplicate = rows.some(function (row) {
+        return row.f_environment === environment && row.f_os_family === osFamily && row.f_driver === driver;
+      });
+      if (duplicate) {
+        showTetapanSystemError('Variant ' + environment + ' / ' + osFamily + ' / ' + driver + ' sudah wujud.');
+        return;
+      }
+
+      var base = rows.find(function (row) { return row.f_environment === environment && row.f_is_active; })
+        || rows.find(function (row) { return row.f_environment === environment; })
+        || {};
+      appendEnvRow(Object.assign({}, base, {
+        f_environment: environment,
+        f_os_family: osFamily,
+        f_driver: driver,
+        f_dsn_name: driver === 'odbc' ? '' : String(base.f_dsn_name || ''),
+        f_host: driver === 'odbc' ? '' : String(base.f_host || ''),
+        f_port: driver === 'odbc' ? '' : String(base.f_port || ''),
+        f_database_name: driver === 'odbc' ? '' : String(base.f_database_name || ''),
+        f_password_ciphertext: '',
+        f_is_active: true
+      }));
+    };
+
     const resetAdditionalConnectionForm = function () {
       if (!dbAdditionalForm) {
         return;
@@ -2300,6 +2517,7 @@
       dbAdditionalForm.reset();
       document.getElementById('db-additional-form-type').value = 'db_additional_create';
       document.getElementById('db-additional-existing-code').value = '';
+      document.getElementById('db-additional-registry-revision').value = '';
       document.getElementById('db-additional-code').readOnly = false;
       document.getElementById('db-additional-enabled').checked = true;
       document.getElementById('db-additional-supports-prod').checked = true;
@@ -2348,6 +2566,7 @@
       if (connection) {
         document.getElementById('db-additional-form-type').value = 'db_additional_update';
         document.getElementById('db-additional-existing-code').value = String(connection.f_code || '');
+        document.getElementById('db-additional-registry-revision').value = String(connection.f_registry_revision || '');
         document.getElementById('db-additional-code').value = String(connection.f_code || '');
         document.getElementById('db-additional-code').readOnly = true;
         document.getElementById('db-additional-name').value = String(connection.f_name || '');
@@ -2471,6 +2690,9 @@
             additionalConnections = payload.data.additionalConnections.slice();
             renderAdditionalConnectionsTable();
           }
+          if (payload.data && payload.data.additionalDiagnostics) {
+            renderAdditionalDiagnostics(payload.data.additionalDiagnostics);
+          }
         })
         .catch(function (error) {
           showTetapanSystemError(error && error.message ? error.message : additionalLabel('config_tab_db_additional_refresh_failed', 'Failed to refresh additional connections.'));
@@ -2497,6 +2719,7 @@
         f_supports_prod: document.getElementById('db-additional-supports-prod').checked ? '1' : '0',
         f_supports_dev: document.getElementById('db-additional-supports-dev').checked ? '1' : '0',
         existing_code: document.getElementById('db-additional-existing-code').value,
+        f_registry_revision: document.getElementById('db-additional-registry-revision').value,
         env_rows: JSON.stringify(serializeAdditionalEnvRows())
       };
 
@@ -2743,6 +2966,7 @@
       }
       state.pending = true;
       setSaveFeedbackState(form, button, 'saving', __('config_js_saving_changes') || 'The system is saving your changes...');
+      showTetapanLoader('submitFormDirect', __('config_js_saving_changes') || __('config_js_btn_loading_save') || 'Saving...');
 
       const formData = new FormData(form);
       formData.set('ajax', '1');
@@ -2810,7 +3034,7 @@
 
           var warnings = payload && Array.isArray(payload.warnings) ? payload.warnings : [];
           if (warnings.length > 0) {
-            setSaveFeedbackState(form, button, 'warning', payload.message || 'Tetapan disimpan dengan amaran.');
+            setSaveFeedbackState(form, button, 'warning', payload.message || __('config_js_save_feedback_saved_with_warning') || 'Settings saved with a warning.');
             return;
           }
 
@@ -2835,6 +3059,7 @@
           if (button) {
             setButtonLoading(button, false);
           }
+          hideTetapanLoader('submitFormDirect');
           refreshDirtyIndicator(form, button);
         });
 
@@ -3517,7 +3742,7 @@
       });
     });
 
-    document.querySelectorAll('#form-general-aktif input, #form-general-aktif textarea, #form-general-aktif select, #form-auth-aktif input, #form-auth-aktif textarea, #form-auth-aktif select, #form-emel-aktif input, #form-emel-aktif textarea, #form-emel-aktif select, #form-db-aktif input, #form-db-aktif textarea, #form-db-aktif select, #form-tema-aktif input, #form-tema-aktif textarea, #form-tema-aktif select, #form-bahasa input, #form-bahasa textarea, #form-bahasa select').forEach(function (field) {
+    document.querySelectorAll('#form-general-aktif input, #form-general-aktif textarea, #form-general-aktif select, #form-auth-aktif input, #form-auth-aktif textarea, #form-auth-aktif select, #form-emel-aktif input, #form-emel-aktif textarea, #form-emel-aktif select, #form-db-aktif input, #form-db-aktif textarea, #form-db-aktif select, #form-tema-aktif input, #form-tema-aktif textarea, #form-tema-aktif select, #form-bahasa input, #form-bahasa textarea, #form-bahasa select, #form-ai-chatbot input, #form-ai-chatbot textarea, #form-ai-chatbot select').forEach(function (field) {
       field.addEventListener('input', function () {
         clearFieldValidationState(field);
         const form = field.form;
@@ -3601,6 +3826,7 @@
         formData.append('uji_email', result.value);
         btnUji.disabled = true;
         btnUji.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> ' + __('config_js_uji_emel_btn_loading');
+        showTetapanLoader('emailTest', __('config_js_uji_emel_btn_loading') || 'Testing...');
 
         const csrfToken = document.querySelector('meta[name="csrf-token"]')
           ? document.querySelector('meta[name="csrf-token"]').getAttribute('content')
@@ -3642,6 +3868,7 @@
           .finally(function () {
             btnUji.disabled = false;
             btnUji.innerHTML = '<i class="ri-mail-send-line me-1"></i> ' + __('config_js_uji_emel_btn_default');
+            hideTetapanLoader('emailTest');
           });
       });
     };
@@ -3666,7 +3893,8 @@
       'form-emel-aktif',
       'form-db-aktif',
       'form-tema-aktif',
-      'form-bahasa'
+      'form-bahasa',
+      'form-ai-chatbot'
     ].forEach(function (formId) {
       const form = document.getElementById(formId);
       if (form) {
@@ -3803,6 +4031,19 @@
       });
     }
 
+    var windowsOdbcPresetButton = document.getElementById('btn-db-additional-preset-windows-odbc');
+    if (windowsOdbcPresetButton) {
+      windowsOdbcPresetButton.addEventListener('click', function () {
+        appendPlatformPreset('windows', 'odbc');
+      });
+    }
+    var linuxDblibPresetButton = document.getElementById('btn-db-additional-preset-linux-dblib');
+    if (linuxDblibPresetButton) {
+      linuxDblibPresetButton.addEventListener('click', function () {
+        appendPlatformPreset('linux', 'dblib');
+      });
+    }
+
     if (dbAdditionalSearch) {
       dbAdditionalSearch.addEventListener('input', renderAdditionalConnectionsTable);
     }
@@ -3837,9 +4078,7 @@
         }
 
         if (action === 'inspect') {
-          var inspectEnv = connection && Array.isArray(connection.env_rows) && connection.env_rows.length
-            ? (connection.env_rows.find(function (row) { return !!Number(row.f_is_active || 0); }) || connection.env_rows[0])
-            : null;
+          var inspectEnv = getPreferredAdditionalEnvRow(connection);
           postAdditionalConnectionAction('db_additional_inspect', {
             connection_code: code,
             environment: inspectEnv ? String(inspectEnv.f_environment || 'production') : 'production',
@@ -3859,9 +4098,7 @@
         }
 
         if (action === 'schema') {
-          var schemaEnv = connection && Array.isArray(connection.env_rows) && connection.env_rows.length
-            ? (connection.env_rows.find(function (row) { return !!Number(row.f_is_active || 0); }) || connection.env_rows[0])
-            : null;
+          var schemaEnv = getPreferredAdditionalEnvRow(connection);
           postAdditionalConnectionAction('db_additional_schema_preview', {
             connection_code: code,
             environment: schemaEnv ? String(schemaEnv.f_environment || 'production') : 'production',
@@ -3899,9 +4136,7 @@
         }
 
         if (action === 'test') {
-          var firstEnv = connection && Array.isArray(connection.env_rows) && connection.env_rows.length
-            ? (connection.env_rows.find(function (row) { return !!Number(row.f_is_active || 0); }) || connection.env_rows[0])
-            : null;
+          var firstEnv = getPreferredAdditionalEnvRow(connection);
           postAdditionalConnectionAction('db_additional_test', {
             connection_code: code,
             environment: firstEnv ? String(firstEnv.f_environment || 'production') : 'production',
@@ -3926,6 +4161,9 @@
               if (listPayload && listPayload.success && listPayload.data && Array.isArray(listPayload.data.additionalConnections)) {
                 additionalConnections = listPayload.data.additionalConnections.slice();
                 renderAdditionalConnectionsTable();
+                if (listPayload.data.additionalDiagnostics) {
+                  renderAdditionalDiagnostics(listPayload.data.additionalDiagnostics);
+                }
               }
             })
             .catch(function (error) {
@@ -3937,6 +4175,7 @@
     }
 
     renderAdditionalConnectionsTable();
+    renderAdditionalDiagnostics(additionalDiagnostics);
 
     const formBahasa = document.getElementById('form-bahasa');
     const btnBahasa = document.getElementById('btn-simpan-bahasa');
@@ -3954,13 +4193,21 @@
       refreshDirtyIndicator(formTema, btnTema);
     }
 
+    const formAiChatbot = document.getElementById('form-ai-chatbot');
+    const btnAiChatbot = document.getElementById('btn-simpan-ai-chatbot');
+    if (formAiChatbot && btnAiChatbot) {
+      captureFormSnapshot(formAiChatbot);
+      refreshDirtyIndicator(formAiChatbot, btnAiChatbot);
+    }
+
     [
       [formGeneral, btnGeneral],
       [formAuth, btnAuth],
       [formEmel, btnEmel],
       [formDB, btnDB],
       [formBahasa, btnBahasa],
-      [formTema, btnTema]
+      [formTema, btnTema],
+      [formAiChatbot, btnAiChatbot]
     ].forEach(function (entry) {
       var form = entry[0];
       var button = entry[1];

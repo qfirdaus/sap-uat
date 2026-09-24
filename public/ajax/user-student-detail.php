@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
@@ -48,7 +55,7 @@ try {
         http_response_code(400);
         echo json_encode([
             'error' => true,
-            'message' => 'No. matrik tidak sah.',
+            'message' => (string)__('userList_ajax_invalid_matric'),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -100,7 +107,7 @@ try {
         http_response_code(404);
         echo json_encode([
             'error' => true,
-            'message' => 'Pelajar tidak dijumpai.',
+            'message' => (string)__('userList_ajax_student_not_found'),
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }

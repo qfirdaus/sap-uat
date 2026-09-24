@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/init.php';
 require_login();
@@ -77,6 +84,34 @@ function normalize_for_json(mixed $value): mixed
     return $value;
 }
 
+function sanitize_audit_data(mixed $value, ?string $parentKey = null): mixed
+{
+    $sensitiveKey = $parentKey !== null && preg_match('/(?:password|passwd|token|secret|authorization|cookie|api[_-]?key|credential)/i', $parentKey);
+    if ($sensitiveKey) {
+        return '[MASKED]';
+    }
+    if (is_array($value)) {
+        if (!empty($value['is_sensitive'])) {
+            if (array_key_exists('old_value', $value)) $value['old_value'] = '[MASKED]';
+            if (array_key_exists('new_value', $value)) $value['new_value'] = '[MASKED]';
+        }
+        foreach ($value as $key => $item) {
+            $value[$key] = sanitize_audit_data($item, (string)$key);
+        }
+        return $value;
+    }
+    if (is_object($value)) {
+        return sanitize_audit_data((array)$value, $parentKey);
+    }
+    if (is_string($value) && strlen($value) <= 1048576) {
+        $decoded = json_decode($value, true);
+        if (json_last_error() === JSON_ERROR_NONE && is_array($decoded)) {
+            return sanitize_audit_data($decoded, $parentKey);
+        }
+    }
+    return $value;
+}
+
 /**
  * @param array<string,mixed> $record
  * @return array<int,array<string,mixed>>
@@ -94,6 +129,7 @@ function build_sections_for_event(PDO $pdo, array $record): array
         FROM audit_change_set
         WHERE event_id = :event_id
         ORDER BY id ASC
+        LIMIT 50
     ", [':event_id' => (int)($record['id'] ?? 0)]);
 
     foreach ($changeSets as &$changeSet) {
@@ -103,6 +139,7 @@ function build_sections_for_event(PDO $pdo, array $record): array
             FROM audit_change_field
             WHERE change_set_id = :change_set_id
             ORDER BY id ASC
+            LIMIT 200
         ", [':change_set_id' => (int)($changeSet['id'] ?? 0)]);
     }
     unset($changeSet);
@@ -115,6 +152,11 @@ function build_sections_for_event(PDO $pdo, array $record): array
 }
 
 try {
+    if (function_exists('checkRateLimit') && !checkRateLimit('audit_center_meta', 60, 60)) {
+        http_response_code(429);
+        echo json_encode(['success' => false, 'message' => ac('meta_rate_limited', 'Terlalu banyak permintaan metadata.')], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
     $controller = new AuditCenterController();
     if (!$controller->isSuperAdmin()) {
         http_response_code(403);
@@ -150,6 +192,7 @@ try {
                 FROM audit_event
                 WHERE request_id = :request_id
                 ORDER BY occurred_at DESC, id DESC
+                LIMIT 100
             ", [':request_id' => (string)$record['request_id']]);
             if ($relatedEvents !== []) {
                 $sections[] = ['label' => ac('meta_section_related_events', 'Related Events'), 'data' => $relatedEvents];
@@ -197,6 +240,7 @@ try {
                 FROM audit_change_field
                 WHERE change_set_id = :change_set_id
                 ORDER BY id ASC
+                LIMIT 200
             ", [':change_set_id' => $changeSetId]);
             if ($fieldChanges !== []) {
                 $sections[] = ['label' => ac('meta_section_field_changes', 'Field Changes'), 'data' => $fieldChanges];
@@ -228,13 +272,24 @@ try {
         exit;
     }
 
-    echo json_encode(normalize_for_json([
+    $safePayload = sanitize_audit_data([
         'success' => true,
         'title' => $title,
         'subtitle' => $subtitle,
         'record' => $record,
         'sections' => $sections,
-    ]), JSON_UNESCAPED_UNICODE);
+    ]);
+
+    if (function_exists('audit_event')) {
+        audit_event([
+            'event_type' => 'AUDIT_READ', 'severity' => 'INFO', 'outcome' => 'SUCCESS',
+            'target_type' => 'audit_metadata', 'target_id' => (string)($subtitle ?: $kind),
+            'target_label' => $title, 'message' => 'Audit metadata viewed',
+            'meta' => ['kind' => $kind],
+        ]);
+    }
+
+    echo json_encode(normalize_for_json($safePayload), JSON_UNESCAPED_UNICODE);
     exit;
 } catch (Throwable $e) {
     error_log('[audit-center-meta] ' . $e->getMessage());

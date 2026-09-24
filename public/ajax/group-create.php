@@ -1,10 +1,24 @@
 <?php
-// ajax/group-create.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/group-create.php
 declare(strict_types=1);
 require_once __DIR__ . '/../includes/init.php';
 require_login();
 require_once __DIR__ . '/_helpers.php';
+require_once __DIR__ . '/../setting/constants/prestasi_constants.php';
 header('Content-Type: application/json; charset=utf-8');
+
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+  http_response_code(405);
+  echo json_encode(['error' => true, 'message' => (string)__('userGroup_method_not_allowed')], JSON_UNESCAPED_UNICODE);
+  exit;
+}
 
 function normalizeGroupCategory(string $value): string {
   $normalized = strtoupper(trim($value));
@@ -213,6 +227,16 @@ try {
   clearGroupUiCaches($newId);
   clearSidebarNavigationCaches();
 
+  $userCountStmt = $db->prepare('SELECT COUNT(*) FROM tbl_m_user WHERE f_groupID = :gid');
+  $userCountStmt->execute([':gid' => $newId]);
+  $userCount = (int)$userCountStmt->fetchColumn();
+  $saId = defined('PRESTASI_ROLE_ID_ADM_SA') ? (int)PRESTASI_ROLE_ID_ADM_SA : 0;
+  $saCode = defined('PRESTASI_ROLE_KOD_ADM_SA')
+    ? strtoupper(trim((string)PRESTASI_ROLE_KOD_ADM_SA))
+    : (defined('PRESTASI_ROLE_ADM_SA') ? strtoupper(trim((string)PRESTASI_ROLE_ADM_SA)) : 'ADM-SA');
+  $isProtectedGroup = ($saId > 0 && $newId === $saId)
+    || (strtoupper(trim($kod)) === $saCode);
+
   echo json_encode([
     'error'=>false,
     'group'=>[
@@ -225,6 +249,10 @@ try {
       'rowClass'=>$rowClass,
       'priority'=>$priority,
       'mod'=>$mod,
+      'modulAccess'=>$modulAccessArr,
+      'menuAccess'=>$menuAccessArr,
+      'userCount'=>$userCount,
+      'canDelete'=>empty($modulAccessArr) && empty($menuAccessArr) && $userCount === 0 && !$isProtectedGroup,
     ]
   ], JSON_UNESCAPED_UNICODE);
 
@@ -266,5 +294,6 @@ try {
 
 } catch (Throwable $e) {
   http_response_code(500);
-  echo json_encode(['error'=>true,'message'=>(string)__('userGroup_server_error_prefix') . ' ' . $e->getMessage()], JSON_UNESCAPED_UNICODE);
+  error_log('[group-create] ' . $e->getMessage());
+  echo json_encode(['error'=>true,'message'=>(string)__('userGroup_err_server')], JSON_UNESCAPED_UNICODE);
 }

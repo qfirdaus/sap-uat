@@ -1,5 +1,12 @@
 <?php
-if (session_status() === PHP_SESSION_NONE) session_start();
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */if (session_status() === PHP_SESSION_NONE) session_start();
 
 require_once __DIR__ . '/../classes/Database.php';
 require_once __DIR__ . '/../classes/User.php';
@@ -50,6 +57,14 @@ if (empty($_SESSION['csrf_token'])) {
   $_SESSION['csrf_token'] = bin2hex(random_bytes(16));
 }
 $csrfToken = $_SESSION['csrf_token'];
+$isImpersonating = function_exists('impersonation_is_active') && impersonation_is_active();
+$impersonationActor = $isImpersonating && function_exists('impersonation_actor') ? impersonation_actor() : [];
+$impersonationTarget = $isImpersonating && function_exists('impersonation_target') ? impersonation_target() : [];
+$impersonationReason = $isImpersonating ? (string)((impersonation_state()['reason'] ?? '')) : '';
+$impersonationMode = $isImpersonating && function_exists('impersonation_mode') ? impersonation_mode() : 'view_only';
+$impersonationModeLabel = $impersonationMode === 'support_action'
+  ? (string)(__('impersonation_mode_support_action') ?: 'Support Action')
+  : (string)(__('impersonation_mode_view_only') ?: 'View Only');
 
 $defaultGroupId = (int)($_SESSION['group_default_id'] ?? ($profile['f_groupID'] ?? 0));
 if (!isset($_SESSION['group_default_id']) && $defaultGroupId > 0) {
@@ -93,6 +108,10 @@ try {
     $allowedRoles = $stmtRoles->fetchAll(PDO::FETCH_ASSOC) ?: [];
   }
 } catch (Throwable $e) {
+  $allowedRoles = [];
+  $hasExtraRole = false;
+}
+if ($isImpersonating) {
   $allowedRoles = [];
   $hasExtraRole = false;
 }
@@ -144,19 +163,6 @@ if ($roleSwitchFlash !== null) {
   unset($_SESSION['role_switch_success']);
 }
 ?>
-
-<!-- Global Loader -->
-<!-- <div id="global-loader" aria-live="polite" aria-busy="true">
-  <div class="loader-inner">
-    <span
-      class="spinner"
-      role="status"
-      aria-label="<?= htmlspecialchars(__('config_js_loading') ?: 'Loading…', ENT_QUOTES, 'UTF-8') ?>">
-    </span>
-  </div>
-</div> -->
-
-
 
 <!-- ========== Development Mode Banner (Overlay) ========== -->
 <?php if (function_exists('is_development_mode') && is_development_mode()): ?>
@@ -346,9 +352,35 @@ if ($roleSwitchFlash !== null) {
 </div>
 <!-- ========== Topbar End ========== -->
 
+<?php if ($isImpersonating): ?>
+<div class="impersonation-banner" role="status" aria-live="polite">
+  <div class="impersonation-banner__content">
+    <div class="impersonation-banner__text">
+      <i class="ri-eye-line"></i>
+      <span>
+        <?= h(__('impersonation_banner_prefix') ?: 'Viewing as') ?>:
+        <strong><?= h((string)($impersonationTarget['name'] ?? $nama_pengguna)) ?></strong>
+        <small>(<?= h((string)($impersonationTarget['login_id'] ?? $_SESSION['f_loginID'] ?? '')) ?>)</small>
+      </span>
+      <span class="impersonation-banner__actor">
+        <?= h(__('impersonation_banner_actor') ?: 'Actor') ?>:
+        <?= h((string)($impersonationActor['name'] ?? $impersonationActor['login_id'] ?? 'Admin')) ?>
+      </span>
+      <span class="impersonation-banner__mode"><?= h($impersonationModeLabel) ?></span>
+      <?php if ($impersonationReason !== ''): ?>
+        <span class="impersonation-banner__reason"><?= h($impersonationReason) ?></span>
+      <?php endif; ?>
+    </div>
+    <button type="button" class="btn btn-sm btn-light" id="btnStopImpersonation">
+      <i class="ri-logout-box-r-line me-1"></i><?= h(__('impersonation_stop_button') ?: 'Stop View As') ?>
+    </button>
+  </div>
+</div>
+<?php endif; ?>
+
 <!-- ========== Role Switcher Modal (Topbar) ========== -->
 <div class="modal fade modal-themed" id="switchRoleModal" tabindex="-1" aria-hidden="true" aria-labelledby="switchRoleTitle">
-  <div class="modal-dialog modal-dialog-centered">
+  <div class="modal-dialog">
     <div class="modal-content">
       <div class="modal-header">
         <h5 class="modal-title" id="switchRoleTitle">
@@ -414,6 +446,65 @@ if ($roleSwitchFlash !== null) {
 
 <!-- ========== Development Mode Banner CSS ========== -->
 <style>
+  .impersonation-banner {
+    position: sticky;
+    top: 70px;
+    z-index: 1001;
+    border-bottom: 1px solid rgba(180, 83, 9, .22);
+    background: linear-gradient(135deg, #fef3c7, #fed7aa);
+    color: #7c2d12;
+    box-shadow: 0 6px 18px rgba(15, 23, 42, .08);
+  }
+  .impersonation-banner__content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: .9rem;
+    width: 100%;
+    padding: .55rem 1.25rem;
+  }
+  .impersonation-banner__text {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: .65rem;
+    min-width: 0;
+    font-size: .86rem;
+  }
+  .impersonation-banner__text > i { font-size: 1.1rem; }
+  .impersonation-banner__actor,
+  .impersonation-banner__mode,
+  .impersonation-banner__reason {
+    border-left: 1px solid rgba(124, 45, 18, .22);
+    padding-left: .65rem;
+    opacity: .95;
+  }
+  .impersonation-banner__mode {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(124, 45, 18, .25);
+    border-radius: 999px;
+    padding: .12rem .55rem;
+    font-weight: 800;
+    background: rgba(255,255,255,.5);
+  }
+  .impersonation-banner .btn {
+    white-space: nowrap;
+    font-weight: 700;
+  }
+  @media (max-width: 767.98px) {
+    .impersonation-banner__content {
+      align-items: flex-start;
+      flex-direction: column;
+      padding: .65rem .9rem;
+    }
+    .impersonation-banner__actor,
+    .impersonation-banner__mode,
+    .impersonation-banner__reason {
+      border-left: 0;
+      padding-left: 0;
+    }
+  }
   .topbar-language-toggle {
     display: inline-flex;
     align-items: center;
@@ -479,14 +570,19 @@ if ($roleSwitchFlash !== null) {
     box-shadow: 0 2px 5px rgba(239, 68, 68, 0.25);
   }
   .topbar-notification-menu {
+    display: flex;
+    flex-direction: column;
     width: 380px;
     max-width: calc(100vw - 1rem);
+    max-height: min(520px, calc(100vh - 5rem));
     border: 1px solid rgba(148, 163, 184, 0.18);
     border-radius: 10px;
+    background: #fff;
     overflow: hidden;
     box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
   }
   .topbar-notification-header {
+    flex: 0 0 auto;
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -522,7 +618,9 @@ if ($roleSwitchFlash !== null) {
     text-decoration: underline;
   }
   .topbar-notification-list {
-    max-height: 345px;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     background: #fff;
   }
   .topbar-notification-item {
@@ -587,19 +685,22 @@ if ($roleSwitchFlash !== null) {
     padding: 0.18rem 0.32rem;
   }
   .topbar-notification-view-all {
+    flex: 0 0 auto;
     display: block;
+    position: relative;
+    z-index: 2;
     padding: 0.7rem 1rem;
     border-top: 1px solid rgba(148, 163, 184, 0.18);
-    background: #fff;
-    color: #2563eb;
+    background: #fff !important;
+    color: #2563eb !important;
     font-size: 0.76rem;
     font-weight: 800;
     text-align: center;
     text-decoration: none;
   }
   .topbar-notification-view-all:hover {
-    background: rgba(37, 99, 235, 0.04);
-    color: #1d4ed8;
+    background: rgba(37, 99, 235, 0.04) !important;
+    color: #1d4ed8 !important;
   }
 
   /* Role Switcher Modal - align with themed modals in kumpulan-pengguna */
@@ -611,7 +712,6 @@ if ($roleSwitchFlash !== null) {
   }
   #switchRoleModal,
   #switchRoleModal .modal-dialog,
-  #switchRoleModal .modal-dialog-centered,
   #switchRoleModal .modal-content,
   #switchRoleModal .modal-content::before,
   #switchRoleModal .modal-content::after {
@@ -1218,6 +1318,53 @@ if ($roleSwitchFlash !== null) {
     }
   })();
 </script>
+
+<?php if ($isImpersonating): ?>
+<script>
+  (function(){
+    function stopImpersonation() {
+      const button = document.getElementById('btnStopImpersonation');
+      if (!button) return;
+      const original = button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = '<i class="ri-loader-4-line ri-spin me-1"></i><?= h(__('impersonation_stopping') ?: 'Stopping...') ?>';
+      window.showImpersonationBoxLoader('<?= h(__('impersonation_loading_stop') ?: 'Restoring your account...') ?>');
+      const form = new FormData();
+      form.set('csrf_token', <?= json_encode($csrfToken, JSON_UNESCAPED_UNICODE) ?>);
+      fetch(<?= json_encode(base_url('ajax/impersonation-stop.php'), JSON_UNESCAPED_SLASHES) ?>, {
+        method: 'POST',
+        body: form,
+        credentials: 'same-origin',
+        noLoader: true,
+        headers: { 'X-Requested-With': 'XMLHttpRequest', 'X-No-Loader': '1' }
+      })
+        .then(function(response){ return response.json().catch(function(){ return {}; }).then(function(data){ return { response, data }; }); })
+        .then(function(result){
+          if (!result.response.ok || result.data.success !== true) {
+            throw new Error(result.data.message || '<?= h(__('impersonation_stop_failed') ?: 'Unable to stop View As mode.') ?>');
+          }
+          window.location.href = result.data.redirect || <?= json_encode(base_url('pages/senarai-pengguna.php'), JSON_UNESCAPED_SLASHES) ?>;
+        })
+        .catch(function(error){
+          window.hideImpersonationBoxLoader();
+          button.disabled = false;
+          button.innerHTML = original;
+          if (window.Swal) {
+            Swal.fire({ icon: 'error', title: '<?= h(__('userList_error_title') ?: 'Ralat') ?>', text: error.message || '<?= h(__('impersonation_stop_failed') ?: 'Unable to stop View As mode.') ?>' });
+          } else {
+            alert(error.message || '<?= h(__('impersonation_stop_failed') ?: 'Unable to stop View As mode.') ?>');
+          }
+        });
+    }
+    document.addEventListener('click', function(event){
+      const button = event.target && event.target.closest ? event.target.closest('#btnStopImpersonation') : null;
+      if (!button) return;
+      event.preventDefault();
+      stopImpersonation();
+    });
+  })();
+</script>
+<?php endif; ?>
 
 <?php if (!empty($roleSwitchFlash) && is_array($roleSwitchFlash)): 
   $roleName = trim((string)($roleSwitchFlash['group_name'] ?? ''));

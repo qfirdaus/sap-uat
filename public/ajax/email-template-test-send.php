@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/init.php';
 require_login();
@@ -117,7 +124,11 @@ try {
     );
 
     if (!$sent) {
-        jsonErrorResponse($mailer->getLastError() ?: (string)(__('emailTemplate_error_test_send_failed') ?: 'Emel ujian tidak berjaya dihantar.'), 500);
+        jsonExceptionResponse(
+            $mailer->lastFailureAsExternalServiceException((string)(__('emailTemplate_error_test_send_failed') ?: 'Emel ujian tidak berjaya dihantar.')),
+            $mailer->getLastError() ?: (string)(__('emailTemplate_error_test_send_failed') ?: 'Emel ujian tidak berjaya dihantar.'),
+            ['endpoint' => 'email-template-test-send']
+        );
     }
 
     jsonSuccessResponse([
@@ -125,6 +136,10 @@ try {
     ]);
 } catch (InvalidArgumentException $e) {
     jsonErrorResponse($e->getMessage(), 422);
+} catch (ExternalServiceException $e) {
+    jsonExceptionResponse($e, (string)(__('emailTemplate_error_test_send_failed') ?: 'Emel ujian tidak berjaya dihantar.'), [
+        'endpoint' => 'email-template-test-send',
+    ]);
 } catch (Throwable $e) {
     error_log('[email-template-test-send] ' . $e->getMessage());
     jsonErrorResponse((string)(__('emailTemplate_error_test_send_failed') ?: 'Emel ujian tidak berjaya dihantar.'), 500);

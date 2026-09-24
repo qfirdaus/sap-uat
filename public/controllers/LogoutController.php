@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 // controllers/LogoutController.php
 declare(strict_types=1);
 
@@ -18,6 +26,15 @@ class LogoutController
         // Pastikan session aktif
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
+        }
+
+        if (function_exists('impersonation_is_active') && impersonation_is_active() && function_exists('impersonation_stop')) {
+            try {
+                $pdo = Database::getInstance('mysql')->getConnection();
+                impersonation_stop($pdo, 'logout');
+            } catch (Throwable $e) {
+                error_log('[LogoutController] impersonation_stop error: ' . $e->getMessage());
+            }
         }
 
         // ========== 0) Dapatkan info penting SEBELUM kosongkan session ==========
@@ -158,6 +175,15 @@ class LogoutController
         // Mirror steps 0..6 from handle() but stop before sending headers/redirect
         if (session_status() === PHP_SESSION_NONE) {
             session_start();
+        }
+
+        if (function_exists('impersonation_is_active') && impersonation_is_active() && function_exists('impersonation_stop')) {
+            try {
+                $pdo = Database::getInstance('mysql')->getConnection();
+                impersonation_stop($pdo, 'logout_without_redirect');
+            } catch (Throwable $e) {
+                error_log('[LogoutController] impersonation_stop error: ' . $e->getMessage());
+            }
         }
 
         $currSessionId = session_id();

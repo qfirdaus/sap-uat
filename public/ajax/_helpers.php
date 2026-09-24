@@ -1,5 +1,12 @@
 <?php
-// ajax/_helpers.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/_helpers.php
 // Shared helpers untuk AJAX endpoints: rate limiting, permission checks, caching
 
 /**
@@ -39,6 +46,54 @@ function jsonErrorResponse(string $message, int $status = 400): never {
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode(['success' => false, 'error' => true, 'message' => $message], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+/**
+ * Standard JSON exception response for AJAX endpoints.
+ *
+ * ExternalServiceException is intentionally not treated as HTTP 500. Native
+ * Throwable/RuntimeException keeps the existing internal-error behaviour.
+ *
+ * @param array<string,mixed> $logContext
+ */
+function jsonExceptionResponse(Throwable $exception, ?string $fallbackMessage = null, array $logContext = []): never {
+    $skipLog = !empty($logContext['_skip_log']);
+    unset($logContext['_skip_log']);
+
+    if (class_exists(FrameworkExceptionHandler::class)) {
+        if ($skipLog) {
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+
+            $status = FrameworkExceptionHandler::httpStatusFor($exception);
+            http_response_code($status);
+            header('Content-Type: application/json; charset=utf-8');
+
+            $payload = [
+                'success' => false,
+                'error' => true,
+                'message' => FrameworkExceptionHandler::publicMessageFor($exception, $fallbackMessage),
+            ];
+
+            if ($exception instanceof ExternalServiceException) {
+                $payload['external_service_error'] = true;
+                $payload['provider'] = $exception->provider();
+                $payload['category'] = $exception->category();
+                $payload['retryable'] = $exception->retryable();
+            }
+
+            echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        FrameworkExceptionHandler::json($exception, $fallbackMessage, $logContext);
+    }
+
+    if (!$skipLog) {
+        error_log('[' . get_class($exception) . '] ' . $exception->getMessage());
+    }
+    jsonErrorResponse($fallbackMessage ?: 'Ralat sistem semasa memproses permintaan.', 500);
 }
 
 /**
@@ -261,6 +316,20 @@ function hasGroupManagePermission(PDO $pdo): bool {
         if (function_exists('is_user_super_admin') && is_user_super_admin($profile, $pdo)) {
             return true;
         }
+
+        if (function_exists('prestasi_current_request_relative_path')) {
+            $currentPath = prestasi_current_request_relative_path();
+            if (
+                (function_exists('prestasi_is_userlist_page_path') && prestasi_is_userlist_page_path($currentPath))
+                || (function_exists('prestasi_is_userlist_ajax_path') && prestasi_is_userlist_ajax_path($currentPath))
+            ) {
+                return userListProjectPolicyDecision(
+                    'project_userlist_can_access_admin',
+                    false,
+                    [$profile, $pdo, $currentPath, false]
+                );
+            }
+        }
         
         // Boleh tambah group lain yang ada permission di sini
         // Contoh: Admin HR boleh manage kumpulan HR sahaja
@@ -270,6 +339,172 @@ function hasGroupManagePermission(PDO $pdo): bool {
         error_log('[hasGroupManagePermission] Error: ' . $e->getMessage());
         return false;
     }
+}
+
+function userListLoadProjectPolicy(): void {
+    if (function_exists('prestasi_load_project_policy')) {
+        prestasi_load_project_policy('userlist');
+        return;
+    }
+
+    foreach ([
+        __DIR__ . '/../project/policies/userlist_policy.php',
+        __DIR__ . '/../custom/policies/userlist_policy.php',
+    ] as $path) {
+        if (is_file($path)) {
+            require_once $path;
+        }
+    }
+}
+
+function userListProjectPolicyDecision(string $hook, bool $default, array $args = []): bool {
+    userListLoadProjectPolicy();
+    if (!function_exists($hook)) {
+        return $default;
+    }
+
+    try {
+        return (bool)$hook(...$args);
+    } catch (Throwable $e) {
+        error_log('[userListProjectPolicyDecision] ' . $hook . ': ' . $e->getMessage());
+        return $default;
+    }
+}
+
+function userListResolveCurrentProfile(PDO $pdo): array {
+    try {
+        require_once __DIR__ . '/../classes/User.php';
+        $userModel = new User($pdo);
+        $loginID = trim((string)($_SESSION['f_loginID'] ?? $_SESSION['user']['f_loginID'] ?? ''));
+        if ($loginID !== '') {
+            $profile = $userModel->getProfileByLoginID($loginID);
+            if (is_array($profile) && $profile) {
+                return $profile;
+            }
+        }
+
+        $stafID = trim((string)($_SESSION['f_stafID'] ?? $_SESSION['user']['f_stafID'] ?? ''));
+        if ($stafID !== '') {
+            $profile = $userModel->getProfile($stafID);
+            if (is_array($profile) && $profile) {
+                return $profile;
+            }
+        }
+    } catch (Throwable $e) {
+        error_log('[userListResolveCurrentProfile] Error: ' . $e->getMessage());
+    }
+
+    return [];
+}
+
+function userListCurrentUserIsSuperAdmin(PDO $pdo, ?array $profile = null): bool {
+    $profile = $profile ?? userListResolveCurrentProfile($pdo);
+    return $profile && function_exists('is_user_super_admin') && is_user_super_admin($profile, $pdo);
+}
+
+function userListNormalizeGroupCode(?string $groupKod): string {
+    $groupKod = strtoupper(trim((string)$groupKod));
+    return preg_replace('/[^A-Z0-9]+/', '', $groupKod) ?? '';
+}
+
+function userListIsSuperAdminGroupCode(?string $groupKod): bool {
+    $normalized = userListNormalizeGroupCode($groupKod);
+    if ($normalized === '') {
+        return false;
+    }
+
+    $superAdminCode = defined('PRESTASI_ROLE_KOD_ADM_SA')
+        ? (string)PRESTASI_ROLE_KOD_ADM_SA
+        : (defined('PRESTASI_ROLE_ADM_SA') ? (string)PRESTASI_ROLE_ADM_SA : 'ADM-SA');
+
+    return $normalized === userListNormalizeGroupCode($superAdminCode);
+}
+
+function userListCanAddUsers(PDO $pdo, ?array $profile = null): bool {
+    $profile = $profile ?? userListResolveCurrentProfile($pdo);
+    $default = userListCurrentUserIsSuperAdmin($pdo, $profile);
+    return userListProjectPolicyDecision('project_userlist_can_add_user', $default, [$profile, $pdo, $default]);
+}
+
+function userListCanEditTargetUser(PDO $pdo, array $targetUser = [], ?array $profile = null): bool {
+    $profile = $profile ?? userListResolveCurrentProfile($pdo);
+    $default = userListCurrentUserIsSuperAdmin($pdo, $profile);
+    return userListProjectPolicyDecision('project_userlist_can_edit_user', $default, [$profile, $targetUser, $pdo, $default]);
+}
+
+function userListCanDeleteTargetUser(PDO $pdo, array $targetUser = [], ?array $profile = null): bool {
+    $profile = $profile ?? userListResolveCurrentProfile($pdo);
+    $default = userListCurrentUserIsSuperAdmin($pdo, $profile);
+    return userListProjectPolicyDecision('project_userlist_can_delete_user', $default, [$profile, $targetUser, $pdo, $default]);
+}
+
+function userListCanAssignGroup(PDO $pdo, array $targetGroup = [], ?array $profile = null): bool {
+    $profile = $profile ?? userListResolveCurrentProfile($pdo);
+    $default = userListCurrentUserIsSuperAdmin($pdo, $profile);
+    return userListProjectPolicyDecision('project_userlist_can_assign_group', $default, [$profile, $targetGroup, $pdo, $default]);
+}
+
+function userListEnsureAssignableGroup(PDO $pdo, int|array $group): array {
+    if (is_array($group)) {
+        $groupRow = $group;
+    } else {
+        if ($group <= 0) {
+            jsonErrorResponse((string)__('userList_ajax_invalid_group'), 400);
+        }
+
+        $stmt = $pdo->prepare('SELECT f_groupID, f_groupKod, f_groupName, f_categoryUser FROM tbl_m_group WHERE f_groupID = :groupID LIMIT 1');
+        $stmt->execute([':groupID' => $group]);
+        $groupRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    if (!$groupRow) {
+        jsonErrorResponse((string)__('userList_ajax_invalid_group'), 400);
+    }
+
+    if (!userListCanAssignGroup($pdo, $groupRow)) {
+        jsonErrorResponse((string)__('userList_ajax_group_assign_denied'), 403);
+    }
+
+    return $groupRow;
+}
+
+function userListEnsureTargetUserEditable(PDO $pdo, int|array $user): array {
+    if (is_array($user)) {
+        $userRow = $user;
+    } else {
+        if ($user <= 0) {
+            jsonErrorResponse((string)__('userList_ajax_invalid_user_id'), 400);
+        }
+
+        $stmt = $pdo->prepare(
+            "SELECT u.f_userID, u.f_loginID, u.f_stafID, u.f_nopekerja, u.f_nama, u.f_groupID,
+                    COALESCE(NULLIF(TRIM(u.f_groupKod), ''), NULLIF(TRIM(g.f_groupKod), '')) AS f_groupKod
+             FROM tbl_m_user u
+             LEFT JOIN tbl_m_group g ON g.f_groupID = u.f_groupID
+             WHERE u.f_userID = :userID
+             LIMIT 1"
+        );
+        $stmt->execute([':userID' => $user]);
+        $userRow = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+    }
+
+    if (!$userRow) {
+        jsonErrorResponse((string)__('userList_ajax_user_not_found'), 404);
+    }
+
+    if (!userListCanEditTargetUser($pdo, $userRow)) {
+        jsonErrorResponse((string)__('userList_ajax_user_edit_denied'), 403);
+    }
+
+    return $userRow;
+}
+
+function userListEnsureTargetUserDeletable(PDO $pdo, int|array $user): array {
+    $userRow = is_array($user) ? $user : userListEnsureTargetUserEditable($pdo, $user);
+    if (!userListCanDeleteTargetUser($pdo, $userRow)) {
+        jsonErrorResponse((string)__('userList_ajax_delete_permission_superadmin'), 403);
+    }
+    return $userRow;
 }
 
 /**
@@ -445,7 +680,7 @@ function clearSidebarNavigationCaches(): void {
     if (function_exists('apcu_delete')) {
         try {
             if (class_exists('APCUIterator')) {
-                $iterator = new APCUIterator('/^sidebar:v1:/');
+                $iterator = new APCUIterator('/^sidebar:v[0-9]+:/');
                 foreach ($iterator as $key => $unused) {
                     apcu_delete((string)$key);
                 }

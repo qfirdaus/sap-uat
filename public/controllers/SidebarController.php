@@ -1,5 +1,13 @@
 <?php
 /**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
+/**
  * SidebarController
  * 
  * Handles business logic for sidebar navigation component.
@@ -134,6 +142,82 @@ class SidebarController
     public function getGroupId(): ?int
     {
         return $this->groupId;
+    }
+
+    /**
+     * Search menus already filtered for the active role and operational mode.
+     *
+     * @return array<int,array{name:string,module:string,subgroup:string,path:string,icon:string}>
+     */
+    public function searchAccessibleMenus(string $query, int $limit = 12): array
+    {
+        $query = trim($query);
+        $limit = max(1, min($limit, 20));
+        if ($query === '' || strlen($query) > 80) {
+            return [];
+        }
+
+        $lower = static fn(string $value): string => function_exists('mb_strtolower')
+            ? mb_strtolower($value, 'UTF-8')
+            : strtolower($value);
+        $needle = $lower($query);
+        $modulesById = [];
+        foreach ($this->senaraiModul as $module) {
+            $moduleId = (int)($module['f_modulID'] ?? 0);
+            if ($moduleId > 0) {
+                $modulesById[$moduleId] = $module;
+            }
+        }
+
+        $matches = [];
+        foreach ($this->modulMenus as $moduleId => $menus) {
+            $module = $modulesById[(int)$moduleId] ?? [];
+            $moduleName = trim((string)($module['modulName'] ?? ''));
+            $moduleIcon = (string)($module['f_icon'] ?? 'ri-folder-fill');
+
+            foreach ((array)$menus as $menu) {
+                $menuName = trim((string)($menu['menuName'] ?? ''));
+                $subgroupName = trim((string)($menu['subgroupName'] ?? ''));
+                $menuPath = $this->sanitizeMenuPath((string)($menu['f_path'] ?? ''));
+                if ($menuName === '' || $menuPath === null || $menuPath === '') {
+                    continue;
+                }
+
+                $menuNameLower = $lower($menuName);
+                $moduleNameLower = $lower($moduleName);
+                $subgroupNameLower = $lower($subgroupName);
+                $menuPosition = strpos($menuNameLower, $needle);
+                $modulePosition = strpos($moduleNameLower, $needle);
+                $subgroupPosition = strpos($subgroupNameLower, $needle);
+                if ($menuPosition === false && $modulePosition === false && $subgroupPosition === false) {
+                    continue;
+                }
+
+                $score = $menuPosition === 0 ? 0 : ($menuPosition !== false ? 1 : 2);
+                $matches[] = [
+                    'name' => $menuName,
+                    'module' => $moduleName,
+                    'subgroup' => $subgroupName,
+                    'path' => $menuPath,
+                    'icon' => preg_match('/^ri-[a-z0-9-]+$/', $moduleIcon) === 1
+                        ? $moduleIcon
+                        : 'ri-folder-fill',
+                    '_score' => $score,
+                ];
+            }
+        }
+
+        usort($matches, static function (array $left, array $right): int {
+            $scoreCompare = ((int)$left['_score'] <=> (int)$right['_score']);
+            return $scoreCompare !== 0
+                ? $scoreCompare
+                : strcasecmp((string)$left['name'], (string)$right['name']);
+        });
+
+        return array_map(static function (array $match): array {
+            unset($match['_score']);
+            return $match;
+        }, array_slice($matches, 0, $limit));
     }
 
     /**
@@ -341,7 +425,7 @@ class SidebarController
      */
     private function getCacheKey(): string
     {
-        return 'sidebar:v1:' . md5((string)($this->groupId ?? 'guest') . '_' . $this->lang . '_' . $this->operationalMode);
+        return 'sidebar:v3:' . md5((string)($this->groupId ?? 'guest') . '_' . $this->lang . '_' . $this->operationalMode);
     }
 
     /**

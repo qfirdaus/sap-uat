@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 // ======================================
 // ✅ Controller: Tetapan Sistem (Clean, no-legacy)
 // ======================================
@@ -12,10 +20,16 @@ require_once __DIR__ . '/../classes/SystemConfigConstants.php';
 require_once __DIR__ . '/../classes/DatabaseConnectionRepository.php';
 require_once __DIR__ . '/../classes/DatabaseConnectionValidator.php';
 require_once __DIR__ . '/../classes/DatabaseConnectionFactory.php';
+require_once __DIR__ . '/../classes/DatabaseConnectionDiagnostics.php';
+require_once __DIR__ . '/../classes/DatabasePreviewSanitizer.php';
+require_once __DIR__ . '/../classes/DatabaseErrorRedactor.php';
+require_once __DIR__ . '/../classes/DatabaseErrorClassifier.php';
+require_once __DIR__ . '/../classes/AiChatbotService.php';
 require_once __DIR__ . '/../setting/constants/prestasi_constants.php';
 require_once __DIR__ . '/../setting/helper/config_helper.php';
 require_once __DIR__ . '/../includes/functions-db.php';
 require_once __DIR__ . '/../includes/sso-config.php';
+require_once __DIR__ . '/../ajax/_helpers.php';
 
 class TetapanSistemController {
   public string $lang;
@@ -31,6 +45,8 @@ class TetapanSistemController {
   private DatabaseConnectionRepository $additionalConnectionRepository;
   private DatabaseConnectionValidator $additionalConnectionValidator;
   private DatabaseConnectionFactory $additionalConnectionFactory;
+  private DatabaseConnectionDiagnostics $additionalConnectionDiagnostics;
+  private DatabasePreviewSanitizer $additionalPreviewSanitizer;
 
   public function __construct() {
     $this->lang = $_SESSION['lang'] ?? SystemConfigConstants::DEFAULT_LANGUAGE;
@@ -42,6 +58,8 @@ class TetapanSistemController {
     $this->additionalConnectionRepository = new DatabaseConnectionRepository($this->pdo);
     $this->additionalConnectionValidator = new DatabaseConnectionValidator();
     $this->additionalConnectionFactory = new DatabaseConnectionFactory();
+    $this->additionalConnectionDiagnostics = new DatabaseConnectionDiagnostics();
+    $this->additionalPreviewSanitizer = new DatabasePreviewSanitizer();
 
     // ✅ Profil user
     $userModel  = new User($pdo_mysql);
@@ -71,6 +89,8 @@ class TetapanSistemController {
       return; // Hanya proses POST
     }
 
+    $this->enforceRequestRateLimit();
+
     if ($this->isAjaxRequest()) {
       $this->handleAjaxRequest();
       return;
@@ -91,7 +111,43 @@ class TetapanSistemController {
       $this->handleLanguageUpdate();
     } elseif ($formType === 'theme_settings') {
       $this->handleThemeUpdate();
+    } elseif ($formType === 'ai_chatbot_settings') {
+      $this->handleAiChatbotUpdate();
     }
+  }
+
+  /** Enforce halaman konfigurasi sebagai Super Admin untuk GET dan POST. */
+  public function authorizePageAccess(): void {
+    $this->checkAuthorization();
+  }
+
+  private function enforceRequestRateLimit(): void {
+    $formType = trim((string)($_POST['form_type'] ?? 'unknown'));
+    $limits = [
+      'db_additional_test' => [8, 60],
+      'db_additional_inspect' => [12, 60],
+      'db_additional_schema_preview' => [10, 60],
+      'db_additional_object_preview' => [20, 60],
+      'db_additional_list' => [40, 60],
+    ];
+    [$maxAttempts, $windowSeconds] = $limits[$formType] ?? [20, 60];
+    if (checkRateLimit('system_settings_' . preg_replace('/[^a-z0-9_]+/i', '_', $formType), $maxAttempts, $windowSeconds)) {
+      return;
+    }
+
+    $title = $this->tr('config_rate_limit_title', 'Terlalu Banyak Permintaan');
+    $message = $this->tr('config_rate_limit_text', 'Terlalu banyak permintaan. Sila cuba lagi sebentar.');
+    if ($this->isAjaxRequest()) {
+      $this->sendJsonResponse([
+        'success' => false,
+        'title' => $title,
+        'message' => $message,
+        'errors' => [$message],
+      ], 429);
+    }
+    set_alert(['title' => $title, 'text' => $message, 'icon' => 'warning']);
+    header('Location: tetapan-sistem.php');
+    exit;
   }
 
   private function isAjaxRequest(): bool {
@@ -134,6 +190,8 @@ class TetapanSistemController {
         $response = $this->processLanguageUpdate();
       } elseif ($formType === 'theme_settings') {
         $response = $this->processThemeUpdate();
+      } elseif ($formType === 'ai_chatbot_settings') {
+        $response = $this->processAiChatbotUpdate();
       } elseif ($formType === 'db_additional_list') {
         $response = $this->processAdditionalConnectionList();
       } elseif ($formType === 'db_additional_create') {
@@ -155,9 +213,9 @@ class TetapanSistemController {
       if (!$response) {
         $this->sendJsonResponse([
           'success' => false,
-          'title' => 'Ralat Permintaan',
-          'message' => 'Permintaan tetapan sistem tidak sah.',
-          'errors' => ['Permintaan tetapan sistem tidak sah.'],
+          'title' => $this->tr('config_invalid_request_title', 'Ralat Permintaan'),
+          'message' => $this->tr('config_invalid_request_text', 'Permintaan tetapan sistem tidak sah.'),
+          'errors' => [$this->tr('config_invalid_request_text', 'Permintaan tetapan sistem tidak sah.')],
         ], 400);
       }
 
@@ -189,8 +247,8 @@ class TetapanSistemController {
       $json = json_encode([
         'success' => false,
         'title' => $this->tr('config_general_system_error_title', 'Ralat Sistem'),
-        'message' => 'Respons JSON gagal dijana.',
-        'errors' => [json_last_error_msg()],
+        'message' => $this->tr('config_json_response_error', 'Respons sistem tidak dapat dijana.'),
+        'errors' => [$this->tr('config_json_response_error', 'Respons sistem tidak dapat dijana.')],
       ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
     }
 
@@ -467,7 +525,7 @@ class TetapanSistemController {
           'title' => $this->tr('emel_title', 'Tetapan Emel'),
           'message' => $summaryText,
           'data' => [
-            'emailSettings' => $this->getEmailSettings(),
+            'emailSettings' => $this->sanitizeEmailSettingsForClient($this->getEmailSettings()),
           ],
         ];
       } else {
@@ -580,6 +638,11 @@ class TetapanSistemController {
     }
   }
 
+  private function sanitizeEmailSettingsForClient(array $settings): array {
+    unset($settings['mail_password']);
+    return $settings;
+  }
+
   /**
    * Handle theme update
    */
@@ -670,6 +733,99 @@ class TetapanSistemController {
     }
   }
 
+  private function handleAiChatbotUpdate(): void {
+    $response = $this->processAiChatbotUpdate();
+
+    set_alert([
+      'title' => $response['title'] ?? ($response['success'] ? 'Berjaya' : 'Ralat'),
+      'text' => $response['message'] ?? '',
+      'icon' => !empty($response['success']) ? 'success' : 'error',
+      'confirm' => true,
+      'confirmText' => 'config_js_btn_tutup'
+    ]);
+
+    header('Location: tetapan-sistem.php?tab=ai-chatbot');
+    exit;
+  }
+
+  private function processAiChatbotUpdate(): array {
+    $this->checkAuthorization();
+    $this->validateCSRF();
+    $this->ensureSession();
+
+    $data = [];
+    $existingSettings = $this->configModel->getGroup(SystemConfigConstants::CONFIG_GROUP_AI_CHATBOT);
+    foreach ($this->getAiChatbotSettingsWhitelist() as $key => $meta) {
+      $field = (string)($meta['field'] ?? '');
+      if (($meta['type'] ?? 'string') === 'bool') {
+        $data[$key] = !empty($_POST[$field]) ? '1' : '0';
+        continue;
+      }
+      $data[$key] = trim((string)($_POST[$field] ?? ''));
+    }
+    if ($data['api_key'] === '') {
+      $data['api_key'] = (string)($existingSettings['api_key'] ?? '');
+    }
+
+    $validationErrors = $this->validateAiChatbotSettings($data);
+    if (!empty($validationErrors)) {
+      return [
+        'success' => false,
+        'status' => 422,
+        'tab' => 'ai-chatbot',
+        'title' => $this->tr('config_ai_chatbot_validation_title', 'Ralat Validasi'),
+        'message' => implode("\n", $validationErrors),
+        'errors' => $validationErrors,
+      ];
+    }
+
+    try {
+      $oldSettings = $this->getAiChatbotSettings();
+      $result = $this->saveAiChatbotSettings($data);
+      if ($result) {
+        $this->invalidateTsCache('ai-chatbot');
+        $newSettings = $this->getAiChatbotSettings();
+        $this->auditAiChatbotUpdate($oldSettings, $newSettings);
+        $summaryLabels = $this->getAiChatbotChangeSummary($oldSettings, $newSettings);
+        $summaryText = !empty($summaryLabels)
+          ? sprintf(
+              $this->tr('config_ai_chatbot_success_text_summary', 'Tetapan AI Chatbot berjaya disimpan. Perubahan: %s.'),
+              implode(', ', $summaryLabels)
+            )
+          : $this->tr('config_ai_chatbot_success_text', 'Tetapan AI Chatbot berjaya disimpan.');
+
+        return [
+          'success' => true,
+          'tab' => 'ai-chatbot',
+          'title' => $this->tr('config_ai_chatbot_success_title', 'Berjaya'),
+          'message' => $summaryText,
+          'data' => [
+            'aiChatbotSettings' => $this->sanitizeAiChatbotSettingsForClient($newSettings),
+          ],
+        ];
+      }
+
+      return [
+        'success' => false,
+        'status' => 500,
+        'tab' => 'ai-chatbot',
+        'title' => $this->tr('config_ai_chatbot_save_error_title', 'Ralat Menyimpan'),
+        'message' => $this->tr('config_ai_chatbot_save_error_text', 'Gagal menyimpan tetapan AI Chatbot. Sila cuba lagi atau hubungi pentadbir sistem.'),
+        'errors' => [$this->tr('config_ai_chatbot_save_error_text', 'Gagal menyimpan tetapan AI Chatbot. Sila cuba lagi atau hubungi pentadbir sistem.')],
+      ];
+    } catch (\Throwable $e) {
+      error_log('[TetapanSistem] Save AI chatbot settings failed: ' . $e->getMessage());
+      return [
+        'success' => false,
+        'status' => 500,
+        'tab' => 'ai-chatbot',
+        'title' => $this->tr('config_ai_chatbot_system_error_title', 'Ralat Sistem'),
+        'message' => $this->tr('config_ai_chatbot_system_error_text', 'Ralat berlaku semasa menyimpan tetapan AI Chatbot. Sila semak log sistem untuk maklumat lanjut.'),
+        'errors' => [$this->tr('config_ai_chatbot_system_error_text', 'Ralat berlaku semasa menyimpan tetapan AI Chatbot. Sila semak log sistem untuk maklumat lanjut.')],
+      ];
+    }
+  }
+
   /** Pastikan sesi terbuka sebelum tulis $_SESSION / set_alert */
   private function ensureSession(): void {
     if (session_status() !== PHP_SESSION_ACTIVE) {
@@ -692,14 +848,14 @@ class TetapanSistemController {
       if ($this->isAjaxRequest()) {
         $this->sendJsonResponse([
           'success' => false,
-          'title' => 'Ralat Keselamatan',
-          'message' => 'CSRF token tidak sah. Sila muat semula halaman dan cuba lagi.',
-          'errors' => ['CSRF token tidak sah. Sila muat semula halaman dan cuba lagi.'],
+          'title' => $this->tr('config_security_error_title', 'Ralat Keselamatan'),
+          'message' => $this->tr('config_csrf_invalid_text', 'CSRF token tidak sah. Sila muat semula halaman dan cuba lagi.'),
+          'errors' => [$this->tr('config_csrf_invalid_text', 'CSRF token tidak sah. Sila muat semula halaman dan cuba lagi.')],
         ], 419);
       }
       set_alert([
-        'title' => 'Ralat Keselamatan',
-        'text' => 'CSRF token tidak sah. Sila muat semula halaman dan cuba lagi.',
+        'title' => $this->tr('config_security_error_title', 'Ralat Keselamatan'),
+        'text' => $this->tr('config_csrf_invalid_text', 'CSRF token tidak sah. Sila muat semula halaman dan cuba lagi.'),
         'icon' => 'error'
       ]);
       header('Location: tetapan-sistem.php');
@@ -714,12 +870,12 @@ class TetapanSistemController {
       if ($this->isAjaxRequest()) {
         $this->sendJsonResponse([
           'success' => false,
-          'title' => 'Akses Ditolak',
-          'message' => 'Sila log masuk terlebih dahulu.',
-          'errors' => ['Sila log masuk terlebih dahulu.'],
+          'title' => $this->tr('config_access_denied_title', 'Akses Ditolak'),
+          'message' => $this->tr('config_login_required_text', 'Sila log masuk terlebih dahulu.'),
+          'errors' => [$this->tr('config_login_required_text', 'Sila log masuk terlebih dahulu.')],
         ], 401);
       }
-      set_alert(['title'=>'Akses Ditolak','text'=>'Sila log masuk terlebih dahulu.','icon'=>'error']);
+      set_alert(['title'=>$this->tr('config_access_denied_title', 'Akses Ditolak'),'text'=>$this->tr('config_login_required_text', 'Sila log masuk terlebih dahulu.'),'icon'=>'error']);
       header('Location: ../index.php');
       exit;
     }
@@ -729,14 +885,14 @@ class TetapanSistemController {
       if ($this->isAjaxRequest()) {
         $this->sendJsonResponse([
           'success' => false,
-          'title' => 'Akses Ditolak',
-          'message' => 'Hanya Super Admin dibenarkan mengakses halaman Konfigurasi Sistem.',
-          'errors' => ['Hanya Super Admin dibenarkan mengakses halaman Konfigurasi Sistem.'],
+          'title' => $this->tr('config_access_denied_title', 'Akses Ditolak'),
+          'message' => $this->tr('config_super_admin_only_text', 'Hanya Super Admin dibenarkan mengakses halaman Konfigurasi Sistem.'),
+          'errors' => [$this->tr('config_super_admin_only_text', 'Hanya Super Admin dibenarkan mengakses halaman Konfigurasi Sistem.')],
         ], 403);
       }
       set_alert([
-        'title' => 'Akses Ditolak',
-        'text' => 'Hanya Super Admin dibenarkan mengakses halaman Konfigurasi Sistem.',
+        'title' => $this->tr('config_access_denied_title', 'Akses Ditolak'),
+        'text' => $this->tr('config_super_admin_only_text', 'Hanya Super Admin dibenarkan mengakses halaman Konfigurasi Sistem.'),
         'icon' => 'error'
       ]);
       header('Location: dashboard.php');
@@ -950,6 +1106,27 @@ class TetapanSistemController {
     ];
   }
 
+  public function getAiChatbotSettings(): array {
+    $settings = AiChatbotService::loadConfig();
+    $dbSettings = $this->configModel->getGroup(SystemConfigConstants::CONFIG_GROUP_AI_CHATBOT);
+
+    $settings['api_key_configured'] = trim((string)($settings['api_key'] ?? '')) !== '';
+    $settings['config_source'] = $dbSettings !== []
+      ? 'database'
+      : 'defaults';
+
+    return $settings;
+  }
+
+  private function sanitizeAiChatbotSettingsForClient(array $settings): array {
+    unset($settings['api_key']);
+    return $settings;
+  }
+
+  public function saveAiChatbotSettings(array $data): bool {
+    return $this->configModel->saveGroup(SystemConfigConstants::CONFIG_GROUP_AI_CHATBOT, $data);
+  }
+
   public function getDatabaseRuntimeViewModel(): array {
     $environment = $this->getSelectedEnvironment();
     $operationalMode = $this->getSelectedOperationalMode();
@@ -1053,11 +1230,18 @@ class TetapanSistemController {
       SystemConfigConstants::CACHE_TTL_DB_CONFIG,
       fn(): array => $this->safeGetAdditionalConnections()
     );
+    $additionalDiagnostics = $this->additionalConnectionDiagnostics->analyze($additionalConnections);
 
     $themeSettings = $this->getCachedValue(
       'theme',
       SystemConfigConstants::CACHE_TTL_DB_CONFIG,
       fn(): array => $this->getThemeSettings()
+    );
+
+    $aiChatbotSettings = $this->getCachedValue(
+      'ai-chatbot',
+      SystemConfigConstants::CACHE_TTL_DB_CONFIG,
+      fn(): array => $this->getAiChatbotSettings()
     );
 
     $sidebarSmallImages = $this->getSidebarSmallImageOptions();
@@ -1071,7 +1255,9 @@ class TetapanSistemController {
       'languageData' => $languageData,
       'dbRuntime' => $dbRuntime,
       'additionalConnections' => $additionalConnections,
+      'additionalDiagnostics' => $additionalDiagnostics,
       'themeSettings' => $themeSettings,
+      'aiChatbotSettings' => $aiChatbotSettings,
       'sidebarSmallImages' => $sidebarSmallImages,
     ];
   }
@@ -1082,6 +1268,14 @@ class TetapanSistemController {
     } catch (Throwable $e) {
       return [];
     }
+  }
+
+  private function buildAdditionalConnectionsResponseData(array $extra = []): array {
+    $connections = $this->additionalConnectionRepository->findAllAdditional();
+    return array_merge($extra, [
+      'additionalConnections' => $connections,
+      'additionalDiagnostics' => $this->additionalConnectionDiagnostics->analyze($connections),
+    ]);
   }
 
   /**
@@ -1239,18 +1433,17 @@ class TetapanSistemController {
         'tab' => 'db',
         'title' => 'Berjaya',
         'message' => 'Senarai sambungan tambahan berjaya dimuatkan.',
-        'data' => [
-          'additionalConnections' => $this->additionalConnectionRepository->findAllAdditional(),
-        ],
+        'data' => $this->buildAdditionalConnectionsResponseData(),
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       return [
         'success' => false,
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sistem',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
   }
@@ -1269,7 +1462,7 @@ class TetapanSistemController {
         $errors[] = 'Kod sambungan tambahan sudah wujud.';
       }
     } catch (Throwable $e) {
-      $errors[] = $e->getMessage();
+      $errors[] = $this->safeAdditionalDatabaseError($e);
     }
 
     if ($errors !== []) {
@@ -1293,23 +1486,24 @@ class TetapanSistemController {
         'tab' => 'db',
         'title' => 'Berjaya',
         'message' => 'Sambungan tambahan berjaya ditambah.',
-        'data' => [
+        'data' => $this->buildAdditionalConnectionsResponseData([
           'connection' => $this->additionalConnectionRepository->findAdditionalByCode($code),
-          'additionalConnections' => $this->additionalConnectionRepository->findAllAdditional(),
-        ],
+        ]),
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       $this->auditAdditionalConnectionAction('CREATE_FAILED', (string)($payload['f_code'] ?? ''), [
         'payload' => $payload,
-        'error' => $e->getMessage(),
+        'error_category' => DatabaseErrorClassifier::classify($e),
+        'error' => $safeError,
       ]);
       return [
         'success' => false,
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sistem',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
   }
@@ -1345,7 +1539,12 @@ class TetapanSistemController {
         throw new RuntimeException('Sambungan tambahan tidak ditemui.');
       }
 
-      $this->additionalConnectionRepository->updateAdditional($code, $payload, $envRows);
+      $this->additionalConnectionRepository->updateAdditional(
+        $code,
+        $payload,
+        $envRows,
+        trim((string)($_POST['f_registry_revision'] ?? '')) ?: null
+      );
       $this->invalidateTsCache('db-additional');
       $this->auditAdditionalConnectionAction('UPDATE', $code, [
         'old' => $existing,
@@ -1357,23 +1556,24 @@ class TetapanSistemController {
         'tab' => 'db',
         'title' => 'Berjaya',
         'message' => 'Sambungan tambahan berjaya dikemas kini.',
-        'data' => [
+        'data' => $this->buildAdditionalConnectionsResponseData([
           'connection' => $this->additionalConnectionRepository->findAdditionalByCode($code),
-          'additionalConnections' => $this->additionalConnectionRepository->findAllAdditional(),
-        ],
+        ]),
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       $this->auditAdditionalConnectionAction('UPDATE_FAILED', $code, [
         'new' => $payload,
-        'error' => $e->getMessage(),
+        'error_category' => DatabaseErrorClassifier::classify($e),
+        'error' => $safeError,
       ]);
       return [
         'success' => false,
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sistem',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
   }
@@ -1416,23 +1616,24 @@ class TetapanSistemController {
         'tab' => 'db',
         'title' => 'Berjaya',
         'message' => $enabled ? 'Sambungan tambahan berjaya diaktifkan.' : 'Sambungan tambahan berjaya dinyahaktifkan.',
-        'data' => [
+        'data' => $this->buildAdditionalConnectionsResponseData([
           'connection' => $this->additionalConnectionRepository->findAdditionalByCode($code),
-          'additionalConnections' => $this->additionalConnectionRepository->findAllAdditional(),
-        ],
+        ]),
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       $this->auditAdditionalConnectionAction('TOGGLE_FAILED', $code, [
         'enabled' => $enabled,
-        'error' => $e->getMessage(),
+        'error_category' => DatabaseErrorClassifier::classify($e),
+        'error' => $safeError,
       ]);
       return [
         'success' => false,
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sistem',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
   }
@@ -1465,7 +1666,7 @@ class TetapanSistemController {
       }
 
       $testTarget = $this->selectAdditionalConnectionEnvRowForTesting($connection, $_POST);
-      $pdoConfig = $this->buildAdditionalTestPdoConfig($testTarget);
+      $pdoConfig = $this->buildAdditionalTestPdoConfig($testTarget, (string)($connection['f_family'] ?? ''));
       $pdo = $this->additionalConnectionFactory->make($pdoConfig);
       $pdo->query('select 1');
 
@@ -1498,6 +1699,7 @@ class TetapanSistemController {
         ],
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       try {
         if ($code !== '') {
           $this->additionalConnectionRepository->saveTestResult(
@@ -1505,7 +1707,7 @@ class TetapanSistemController {
             strtolower(trim((string)($_POST['environment'] ?? 'production'))),
             strtolower(trim((string)($_POST['os_family'] ?? (PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux')))),
             'ERROR',
-            $e->getMessage(),
+            $safeError,
             strtolower(trim((string)($_POST['driver'] ?? 'auto')))
           );
         }
@@ -1517,7 +1719,8 @@ class TetapanSistemController {
         'os_family' => strtolower(trim((string)($_POST['os_family'] ?? (PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux')))),
         'driver' => strtolower(trim((string)($_POST['driver'] ?? 'auto'))),
         'status' => 'ERROR',
-        'error' => $e->getMessage(),
+        'error_category' => DatabaseErrorClassifier::classify($e),
+        'error' => $safeError,
       ]);
 
       return [
@@ -1525,8 +1728,8 @@ class TetapanSistemController {
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sambungan Database',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
   }
@@ -1582,12 +1785,14 @@ class TetapanSistemController {
         ],
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       $this->auditAdditionalConnectionAction('INSPECT_FAILED', $code, [
         'environment' => strtolower(trim((string)($_POST['environment'] ?? 'production'))),
         'os_family' => strtolower(trim((string)($_POST['os_family'] ?? (PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux')))),
         'driver' => strtolower(trim((string)($_POST['driver'] ?? 'auto'))),
         'status' => 'ERROR',
-        'error' => $e->getMessage(),
+        'error_category' => DatabaseErrorClassifier::classify($e),
+        'error' => $safeError,
       ]);
 
       return [
@@ -1595,8 +1800,8 @@ class TetapanSistemController {
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sambungan Database',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
   }
@@ -1652,12 +1857,14 @@ class TetapanSistemController {
         ],
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       $this->auditAdditionalConnectionAction('SCHEMA_PREVIEW_FAILED', $code, [
         'environment' => strtolower(trim((string)($_POST['environment'] ?? 'production'))),
         'os_family' => strtolower(trim((string)($_POST['os_family'] ?? (PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux')))),
         'driver' => strtolower(trim((string)($_POST['driver'] ?? 'auto'))),
         'status' => 'ERROR',
-        'error' => $e->getMessage(),
+        'error_category' => DatabaseErrorClassifier::classify($e),
+        'error' => $safeError,
       ]);
 
       return [
@@ -1665,8 +1872,8 @@ class TetapanSistemController {
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sambungan Database',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
   }
@@ -1736,13 +1943,15 @@ class TetapanSistemController {
         ],
       ];
     } catch (Throwable $e) {
+      $safeError = $this->safeAdditionalDatabaseError($e);
       $this->auditAdditionalConnectionAction('OBJECT_PREVIEW_FAILED', $code, [
         'environment' => strtolower(trim((string)($_POST['environment'] ?? 'production'))),
         'os_family' => strtolower(trim((string)($_POST['os_family'] ?? (PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux')))),
         'driver' => strtolower(trim((string)($_POST['driver'] ?? 'auto'))),
         'object_name' => $objectName,
         'status' => 'ERROR',
-        'error' => $e->getMessage(),
+        'error_category' => DatabaseErrorClassifier::classify($e),
+        'error' => $safeError,
       ]);
 
       return [
@@ -1750,10 +1959,14 @@ class TetapanSistemController {
         'status' => 500,
         'tab' => 'db',
         'title' => 'Ralat Sambungan Database',
-        'message' => $e->getMessage(),
-        'errors' => [$e->getMessage()],
+        'message' => $safeError,
+        'errors' => [$safeError],
       ];
     }
+  }
+
+  private function safeAdditionalDatabaseError(Throwable $error): string {
+    return DatabaseErrorRedactor::redact($error->getMessage());
   }
 
   private function collectAdditionalConnectionPayload(?string $forcedCode = null): array {
@@ -1821,8 +2034,11 @@ class TetapanSistemController {
     }
 
     $targetEnvironment = strtolower(trim((string)($input['environment'] ?? 'production')));
-    $targetOsFamily = strtolower(trim((string)($input['os_family'] ?? (PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux'))));
-    $targetDriver = strtolower(trim((string)($input['driver'] ?? '')));
+    // Live actions must always resolve against the server runtime. Do not trust
+    // stale client-supplied OS/driver values, as they can select a Linux DBLIB
+    // row on Windows (or vice versa).
+    $targetOsFamily = PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux';
+    $targetDriver = '';
     $supportsProd = !empty($connection['f_supports_prod']);
     $supportsDev = !empty($connection['f_supports_dev']);
 
@@ -1834,6 +2050,18 @@ class TetapanSistemController {
       throw new RuntimeException('Sambungan tambahan ini tidak menyokong environment development.');
     }
 
+    $family = strtolower(trim((string)($connection['f_family'] ?? '')));
+    $availableDrivers = array_map('strtolower', PDO::getAvailableDrivers());
+    $preferences = match ($family) {
+      'sybase' => $targetOsFamily === 'windows' ? ['odbc', 'dblib'] : ['dblib', 'odbc'],
+      'mssql' => $targetOsFamily === 'windows' ? ['sqlsrv', 'odbc', 'dblib'] : ['odbc', 'dblib', 'sqlsrv'],
+      default => ['mysql'],
+    };
+    if ($targetDriver !== '') {
+      $preferences = [$targetDriver];
+    }
+
+    $matches = [];
     foreach ($envRows as $row) {
       $rowEnvironment = strtolower(trim((string)($row['f_environment'] ?? '')));
       $rowOsFamily = strtolower(trim((string)($row['f_os_family'] ?? 'any')));
@@ -1847,47 +2075,45 @@ class TetapanSistemController {
       if ($rowEnvironment !== $targetEnvironment) {
         continue;
       }
-      if ($rowOsFamily !== 'any' && $rowOsFamily !== $targetOsFamily) {
+      if (!in_array($rowOsFamily, [$targetOsFamily, 'any'], true)) {
         continue;
       }
-      if ($targetDriver !== '' && $rowDriver !== $targetDriver) {
+      if (!in_array($rowDriver, $preferences, true) || !in_array($rowDriver, $availableDrivers, true)) {
         continue;
       }
-
-      return $row;
+      $osRank = $rowOsFamily === $targetOsFamily ? 0 : 1;
+      $driverRank = array_search($rowDriver, $preferences, true);
+      $matches[] = ['row' => $row, 'rank' => [$osRank, $driverRank === false ? 999 : $driverRank]];
+    }
+    usort($matches, static fn(array $left, array $right): int => $left['rank'] <=> $right['rank']);
+    if ($matches !== []) {
+      return $matches[0]['row'];
     }
 
-    foreach ($envRows as $row) {
-      if (
-        !empty($row['f_is_active'])
-        && strtolower(trim((string)($row['f_environment'] ?? ''))) === $targetEnvironment
-      ) {
-        return $row;
-      }
-    }
-
-    foreach ($envRows as $row) {
-      if (!empty($row['f_is_active'])) {
-        return $row;
-      }
-    }
-
-    throw new RuntimeException('Tiada env row aktif yang sesuai untuk ujian sambungan tambahan ini.');
+    throw new RuntimeException(sprintf(
+      'Tiada env row aktif untuk environment %s dan OS %s dengan driver runtime yang tersedia.',
+      $targetEnvironment,
+      $targetOsFamily
+    ));
   }
 
-  private function buildAdditionalTestPdoConfig(array $envRow): array {
+  private function buildAdditionalTestPdoConfig(array $envRow, string $family = ''): array {
+    $family = strtolower(trim($family));
     $driver = strtolower(trim((string)($envRow['f_driver'] ?? '')));
     $host = trim((string)($envRow['f_host'] ?? ''));
     $port = trim((string)($envRow['f_port'] ?? ''));
     $databaseName = trim((string)($envRow['f_database_name'] ?? ''));
     $dsnName = trim((string)($envRow['f_dsn_name'] ?? ''));
     $charset = trim((string)($envRow['f_charset'] ?? 'utf8mb4'));
+    $dblibDefaultPort = $family === 'mssql' ? '1433' : '5000';
+    $extra = $this->decodeAdditionalExtraOptions($envRow['f_extra_json'] ?? null);
+    $sqlServerOptions = $this->buildSqlServerDsnOptions($extra);
 
     $dsn = match ($driver) {
       'mysql' => sprintf('mysql:host=%s;port=%s;dbname=%s;charset=%s', $host, $port !== '' ? $port : '3306', $databaseName, $charset !== '' ? $charset : 'utf8mb4'),
-      'dblib' => sprintf('dblib:host=%s:%s;dbname=%s', $host, $port !== '' ? $port : '5000', $databaseName),
-      'sqlsrv' => sprintf('sqlsrv:Server=%s%s;Database=%s', $host, $port !== '' ? ',' . $port : '', $databaseName),
-      'odbc' => 'odbc:' . $dsnName,
+      'dblib' => sprintf('dblib:host=%s:%s;dbname=%s', $host, $port !== '' ? $port : $dblibDefaultPort, $databaseName),
+      'sqlsrv' => sprintf('sqlsrv:Server=%s%s;Database=%s%s', $host, $port !== '' ? ',' . $port : '', $databaseName, $sqlServerOptions),
+      'odbc' => 'odbc:' . $this->appendOdbcSqlServerOptions($dsnName, $extra),
       default => throw new RuntimeException('Driver tambahan tidak disokong untuk ujian sambungan.'),
     };
 
@@ -1897,6 +2123,50 @@ class TetapanSistemController {
       'user' => (string)($envRow['f_username'] ?? ''),
       'pass' => (string)($envRow['f_password_ciphertext'] ?? ''),
     ];
+  }
+
+  private function decodeAdditionalExtraOptions(mixed $value): array {
+    if (is_array($value)) {
+      return $value;
+    }
+    if (!is_string($value) || trim($value) === '') {
+      return [];
+    }
+    $decoded = json_decode($value, true);
+    return is_array($decoded) ? $decoded : [];
+  }
+
+  private function additionalExtraBool(array $extra, array $keys, bool $default = false): bool {
+    foreach ($keys as $key) {
+      if (!array_key_exists($key, $extra)) {
+        continue;
+      }
+      $value = $extra[$key];
+      if (is_bool($value)) {
+        return $value;
+      }
+      return in_array(strtolower(trim((string)$value)), ['1', 'true', 'yes', 'on'], true);
+    }
+    return $default;
+  }
+
+  private function buildSqlServerDsnOptions(array $extra): string {
+    $parts = [];
+    if ($this->additionalExtraBool($extra, ['encrypt', 'Encrypt'], false)) {
+      $parts[] = 'Encrypt=yes';
+    }
+    if ($this->additionalExtraBool($extra, ['trust_server_certificate', 'TrustServerCertificate'], false)) {
+      $parts[] = 'TrustServerCertificate=yes';
+    }
+    return $parts !== [] ? ';' . implode(';', $parts) : '';
+  }
+
+  private function appendOdbcSqlServerOptions(string $dsnName, array $extra): string {
+    $options = ltrim($this->buildSqlServerDsnOptions($extra), ';');
+    if ($options === '') {
+      return $dsnName;
+    }
+    return rtrim($dsnName, ';') . ';' . $options;
   }
 
   private function buildAdditionalConnectionProbe(PDO $pdo, array $connection, array $envRow): array {
@@ -2028,9 +2298,11 @@ class TetapanSistemController {
       throw new RuntimeException('Family database ini belum disokong untuk data preview.');
     }
 
+    $this->applyAdditionalPreviewTimeout($pdo, $family);
     $stmt = $pdo->query($sql);
     $rows = $stmt ? ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: []) : [];
     $columns = $rows !== [] ? array_keys($rows[0]) : [];
+    $sanitized = $this->additionalPreviewSanitizer->sanitize($rows);
 
     return [
       'connection_code' => (string)($connection['f_code'] ?? ''),
@@ -2040,8 +2312,27 @@ class TetapanSistemController {
       'database_name' => (string)($envRow['f_database_name'] ?? ''),
       'object_name' => $objectName,
       'columns' => array_values($columns),
-      'rows' => $rows,
+      'rows' => $sanitized['rows'],
+      'masked_columns' => $sanitized['masked_columns'],
+      'truncated_values' => $sanitized['truncated_values'],
+      'binary_values' => $sanitized['binary_values'],
+      'row_limit' => 20,
+      'query_timeout_seconds' => SystemConfigConstants::DB_TEST_CONNECTION_TIMEOUT,
     ];
+  }
+
+  private function applyAdditionalPreviewTimeout(PDO $pdo, string $family): void {
+    try {
+      $pdo->setAttribute(PDO::ATTR_TIMEOUT, SystemConfigConstants::DB_TEST_CONNECTION_TIMEOUT);
+    } catch (Throwable $e) {
+    }
+
+    if ($family === 'mysql') {
+      try {
+        $pdo->exec('SET SESSION MAX_EXECUTION_TIME = ' . (SystemConfigConstants::DB_TEST_CONNECTION_TIMEOUT * 1000));
+      } catch (Throwable $e) {
+      }
+    }
   }
 
   private function quoteAdditionalPreviewObjectName(string $family, string $objectName): string {
@@ -2388,6 +2679,58 @@ class TetapanSistemController {
     ];
   }
 
+  private function validateAiChatbotSettings(array $data): array {
+    $errors = [];
+    $labels = $this->getAiChatbotFieldLabels();
+    $allowedProviders = ['ollama', 'openai', 'gemini', 'grok', 'anthropic', 'openrouter', 'openai_compatible', 'groq'];
+    $allowedAccessModes = ['super_admin_only', 'selected_groups', 'all_authenticated'];
+
+    if (!in_array((string)($data['provider'] ?? ''), $allowedProviders, true)) {
+      $errors[] = sprintf('%s tidak sah.', $labels['provider'] ?? 'Provider');
+    }
+
+    if (!in_array((string)($data['access_mode'] ?? ''), $allowedAccessModes, true)) {
+      $errors[] = sprintf('%s tidak sah.', $labels['access_mode'] ?? 'Access mode');
+    }
+
+    foreach ($this->getAiChatbotSettingsWhitelist() as $key => $meta) {
+      $value = trim((string)($data[$key] ?? ''));
+      $type = (string)($meta['type'] ?? 'string');
+      $label = $labels[$key] ?? $key;
+
+      if ($type === 'string' && isset($meta['max']) && mb_strlen($value) > (int)$meta['max']) {
+        $errors[] = sprintf('%s terlalu panjang. Maksimum %d aksara.', $label, (int)$meta['max']);
+      }
+
+      if ($type === 'int') {
+        if ($value === '' || !ctype_digit($value)) {
+          $errors[] = sprintf('%s mesti nombor positif.', $label);
+          continue;
+        }
+
+        $number = (int)$value;
+        if (isset($meta['min']) && $number < (int)$meta['min']) {
+          $errors[] = sprintf('%s mesti sekurang-kurangnya %d.', $label, (int)$meta['min']);
+        }
+        if (isset($meta['max']) && $number > (int)$meta['max']) {
+          $errors[] = sprintf('%s tidak boleh melebihi %d.', $label, (int)$meta['max']);
+        }
+      }
+    }
+
+    $baseUrl = trim((string)($data['base_url'] ?? ''));
+    if ($baseUrl !== '' && !filter_var($baseUrl, FILTER_VALIDATE_URL)) {
+      $errors[] = sprintf('%s mesti URL yang sah.', $labels['base_url'] ?? 'Provider base URL');
+    }
+
+    $appUrl = trim((string)($data['app_url'] ?? ''));
+    if ($appUrl !== '' && !filter_var($appUrl, FILTER_VALIDATE_URL)) {
+      $errors[] = sprintf('%s mesti URL yang sah.', $labels['app_url'] ?? 'App URL');
+    }
+
+    return $errors;
+  }
+
   // ---------------------------
   // Emel / Bahasa / Tema / Umum
   // ---------------------------
@@ -2408,6 +2751,7 @@ class TetapanSistemController {
       'branding.sidebar_logo' => ['field' => 'branding_sidebar_logo', 'type' => 'string', 'max' => 255],
       'branding.sidebar_user_image' => ['field' => 'branding_sidebar_user_image', 'type' => 'string', 'max' => 255],
       'session.idle_timeout_minutes' => ['field' => 'session_idle_timeout_minutes', 'type' => 'int', 'max' => 3, 'min' => 1, 'max_value' => 240],
+      'impersonation.timeout_minutes' => ['field' => 'impersonation_timeout_minutes', 'type' => 'int', 'max' => 3, 'min' => 5, 'max_value' => 240],
       'upload.manual_max_mb' => ['field' => 'upload_manual_max_mb', 'type' => 'int', 'max' => 3, 'min' => 1, 'max_value' => 100],
       'organization.name' => ['field' => 'organization_name', 'type' => 'string', 'max' => 150],
       'organization.short' => ['field' => 'organization_short', 'type' => 'string', 'max' => 50],
@@ -2456,6 +2800,32 @@ class TetapanSistemController {
     ];
   }
 
+  public function getAiChatbotSettingsWhitelist(): array {
+    return [
+      'enabled' => ['field' => 'ai_chatbot_enabled', 'type' => 'bool'],
+      'access_mode' => ['field' => 'ai_chatbot_access_mode', 'type' => 'string', 'max' => 64],
+      'allowed_groups' => ['field' => 'ai_chatbot_allowed_groups', 'type' => 'string', 'max' => 255],
+      'provider' => ['field' => 'ai_chatbot_provider', 'type' => 'string', 'max' => 64],
+      'model' => ['field' => 'ai_chatbot_model', 'type' => 'string', 'max' => 191],
+      'base_url' => ['field' => 'ai_chatbot_base_url', 'type' => 'string', 'max' => 255],
+      'api_key' => ['field' => 'ai_chatbot_api_key', 'type' => 'string', 'max' => 1000],
+      'timeout_seconds' => ['field' => 'ai_chatbot_timeout_seconds', 'type' => 'int', 'min' => 1, 'max' => 120],
+      'max_input_chars' => ['field' => 'ai_chatbot_max_input_chars', 'type' => 'int', 'min' => 100, 'max' => 20000],
+      'max_output_tokens' => ['field' => 'ai_chatbot_max_output_tokens', 'type' => 'int', 'min' => 64, 'max' => 8192],
+      'rate_limit_per_minute' => ['field' => 'ai_chatbot_rate_limit_per_minute', 'type' => 'int', 'min' => 1, 'max' => 120],
+      'user_daily_request_limit' => ['field' => 'ai_chatbot_user_daily_request_limit', 'type' => 'int', 'min' => 0, 'max' => 10000],
+      'global_daily_request_limit' => ['field' => 'ai_chatbot_global_daily_request_limit', 'type' => 'int', 'min' => 0, 'max' => 100000],
+      'persist_usage' => ['field' => 'ai_chatbot_persist_usage', 'type' => 'bool'],
+      'store_conversations' => ['field' => 'ai_chatbot_store_conversations', 'type' => 'bool'],
+      'log_message_content' => ['field' => 'ai_chatbot_log_message_content', 'type' => 'bool'],
+      'character_name' => ['field' => 'ai_chatbot_character_name', 'type' => 'string', 'max' => 100],
+      'character_avatar' => ['field' => 'ai_chatbot_character_avatar', 'type' => 'string', 'max' => 255],
+      'welcome_message' => ['field' => 'ai_chatbot_welcome_message', 'type' => 'string', 'max' => 500],
+      'app_url' => ['field' => 'ai_chatbot_app_url', 'type' => 'string', 'max' => 255],
+      'app_title' => ['field' => 'ai_chatbot_app_title', 'type' => 'string', 'max' => 150],
+    ];
+  }
+
   private function getGeneralSettingsFieldLabels(): array {
     return [
       'site.title' => $this->tr('config_general_site_title', 'Site Title'),
@@ -2472,6 +2842,7 @@ class TetapanSistemController {
       'branding.sidebar_logo' => $this->tr('config_general_branding_sidebar_logo', 'Sidebar Logo'),
       'branding.sidebar_user_image' => $this->tr('config_general_branding_sidebar_user_image', 'Sidebar User Image'),
       'session.idle_timeout_minutes' => $this->tr('config_general_session_idle_timeout_minutes', 'Idle Timeout (Minutes)'),
+      'impersonation.timeout_minutes' => $this->tr('config_general_impersonation_timeout_minutes', 'View As Timeout (Minutes)'),
       'upload.manual_max_mb' => $this->tr('config_general_upload_manual_max_mb', 'Manual Upload Max Size (MB)'),
       'organization.name' => $this->tr('config_general_org_name', 'Organization Name'),
       'organization.short' => $this->tr('config_general_org_short', 'Organization Short Code'),
@@ -2540,6 +2911,32 @@ class TetapanSistemController {
     ];
   }
 
+  private function getAiChatbotFieldLabels(): array {
+    return [
+      'enabled' => 'Status aktif',
+      'access_mode' => 'Access mode',
+      'allowed_groups' => 'Allowed groups',
+      'provider' => 'Provider',
+      'model' => 'Model',
+      'base_url' => 'Provider base URL',
+      'api_key' => 'API key',
+      'timeout_seconds' => 'Timeout',
+      'max_input_chars' => 'Max input chars',
+      'max_output_tokens' => 'Max output tokens',
+      'rate_limit_per_minute' => 'Rate limit per minute',
+      'user_daily_request_limit' => 'User daily limit',
+      'global_daily_request_limit' => 'Global daily limit',
+      'persist_usage' => 'Persist usage',
+      'store_conversations' => 'Store conversations',
+      'log_message_content' => 'Log message content',
+      'character_name' => 'Character name',
+      'character_avatar' => 'Character avatar',
+      'welcome_message' => 'Welcome message',
+      'app_url' => 'App URL',
+      'app_title' => 'App title',
+    ];
+  }
+
   private function getEmailChangeSummary(array $oldSettings, array $newSettings): array {
     $labels = [];
     $fieldLabels = $this->getEmailFieldLabels();
@@ -2579,6 +2976,59 @@ class TetapanSistemController {
     return $labels;
   }
 
+  private function getAiChatbotChangeSummary(array $oldSettings, array $newSettings): array {
+    $labels = [];
+    $fieldLabels = $this->getAiChatbotFieldLabels();
+
+    foreach ($this->getAiChatbotSettingsWhitelist() as $key => $_meta) {
+      if ((string)($oldSettings[$key] ?? '') !== (string)($newSettings[$key] ?? '')) {
+        $labels[] = $fieldLabels[$key] ?? $key;
+      }
+    }
+
+    return $labels;
+  }
+
+  private function auditAiChatbotUpdate(array $oldSettings, array $newSettings): void {
+    if (!function_exists('audit_event')) return;
+
+    try {
+      $changedFieldLabels = $this->getAiChatbotChangeSummary($oldSettings, $newSettings);
+      $summary = !empty($changedFieldLabels)
+        ? implode(', ', $changedFieldLabels)
+        : 'tiada perubahan medan';
+
+      $nama = $this->profile['f_nama'] ?? null;
+      $nostaf = $this->profile['f_nopekerja'] ?? $_SESSION['f_nopekerja'] ?? null;
+      $actorLabel = function_exists('audit_format_actor_label')
+        ? audit_format_actor_label($nama, $nostaf)
+        : $nama;
+
+      $message = function_exists('audit_format_message')
+        ? audit_format_message(sprintf('Tetapan AI Chatbot dikemas kini (%d medan): %s', count($changedFieldLabels), $summary), $actorLabel)
+        : sprintf('Tetapan AI Chatbot dikemas kini (%d medan): %s', count($changedFieldLabels), $summary);
+
+      audit_event([
+        'event_type' => SystemConfigConstants::AUDIT_EVENT_AI_CHATBOT_UPDATE,
+        'severity' => 'WARN',
+        'outcome' => 'SUCCESS',
+        'target_type' => SystemConfigConstants::AUDIT_TARGET_AI_CHATBOT,
+        'target_id' => SystemConfigConstants::CONFIG_GROUP_AI_CHATBOT,
+        'target_label' => 'AI Chatbot Settings',
+        'message' => $message,
+        'user_id' => $_SESSION['user']['f_userID'] ?? $_SESSION['f_userID'] ?? $_SESSION['f_stafID'] ?? null,
+        'actor_label' => $actorLabel,
+        'meta' => [
+          'changed_field_labels' => $changedFieldLabels,
+          'changed_count' => count($changedFieldLabels),
+          'change_summary' => $summary,
+        ],
+      ]);
+    } catch (Throwable $e) {
+      error_log('[TetapanSistem] AI chatbot audit logging failed: ' . $e->getMessage());
+    }
+  }
+
   private function auditAdditionalConnectionAction(string $action, string $code, array $meta = []): void {
     if (!function_exists('audit_event')) return;
 
@@ -2612,7 +3062,7 @@ class TetapanSistemController {
         ], $meta),
       ]);
     } catch (Throwable $e) {
-      error_log("[TetapanSistem] Additional DB audit logging failed: " . $e->getMessage());
+      error_log('[TetapanSistem] Additional DB audit logging failed: ' . $this->safeAdditionalDatabaseError($e));
     }
   }
 
@@ -3423,6 +3873,13 @@ class TetapanSistemController {
       } catch (\Throwable $e) {
         error_log("[TetapanSistem] File delete failed: " . $e->getMessage());
       }
+    }
+
+    // app_config() menyimpan override DB dalam static cache sepanjang request.
+    // Tanpa reset ini, respons AJAX selepas save boleh membawa nilai lama dan
+    // menyebabkan form kelihatan kembali ke keadaan sebelum disimpan.
+    if (function_exists('app_config_reset_runtime_cache')) {
+      app_config_reset_runtime_cache();
     }
   }
 }

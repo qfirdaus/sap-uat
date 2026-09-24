@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 // pages/tetapan-sistem.php
 declare(strict_types=1);
 
@@ -27,11 +35,12 @@ $PAGE_TITLE = (string)(__('config_system') ?? 'Konfigurasi Sistem');
 require_once __DIR__ . '/../controllers/TetapanSistemController.php';
 require_once __DIR__ . '/../classes/SystemConfigConstants.php';
 $controller = new TetapanSistemController();
+$controller->authorizePageAccess();
 $controller->handleRequest(); // Handle POST requests
 
 $lang     = $controller->lang;
 $profile  = $controller->profile;
-$version  = (string)($_ENV['APP_ASSET_VER'] ?? date('ymdHis'));
+$pageAssetVersion = (string)($_ENV['APP_ASSET_VER'] ?? date('ymdHis'));
 $viewData = $controller->getPageViewData((($_GET['tab'] ?? '') === 'lang'));
 
 $dbAktif = is_array($viewData['dbAktif'] ?? null) ? $viewData['dbAktif'] : [];
@@ -42,7 +51,9 @@ $authSettings = is_array($viewData['authSettings'] ?? null) ? $viewData['authSet
 $languageData = is_array($viewData['languageData'] ?? null) ? $viewData['languageData'] : [];
 $dbRuntime = is_array($viewData['dbRuntime'] ?? null) ? $viewData['dbRuntime'] : [];
 $additionalConnections = is_array($viewData['additionalConnections'] ?? null) ? $viewData['additionalConnections'] : [];
+$additionalDiagnostics = is_array($viewData['additionalDiagnostics'] ?? null) ? $viewData['additionalDiagnostics'] : [];
 $themeSettings = is_array($viewData['themeSettings'] ?? null) ? $viewData['themeSettings'] : [];
+$aiChatbotSettings = is_array($viewData['aiChatbotSettings'] ?? null) ? $viewData['aiChatbotSettings'] : [];
 $sidebarSmallImages = is_array($viewData['sidebarSmallImages'] ?? null) ? $viewData['sidebarSmallImages'] : [];
 $systemVersion = app_current_version();
 
@@ -188,7 +199,13 @@ $normaliseTranslationMapForJs = static function (array $map): array {
 foreach ($translationLangCodes as $translationLangCode) {
   $bundleMap = function_exists('lang_lines') ? lang_lines((string)$translationLangCode) : [];
   if (is_array($bundleMap) && $bundleMap !== []) {
-    $translationBundlesJs[$translationLangCode] = $normaliseTranslationMapForJs($bundleMap);
+    // Runtime JS halaman ini hanya menggunakan namespace config_*.
+    $configBundle = array_filter(
+      $bundleMap,
+      static fn($key): bool => str_starts_with((string)$key, 'config_'),
+      ARRAY_FILTER_USE_KEY
+    );
+    $translationBundlesJs[$translationLangCode] = $normaliseTranslationMapForJs($configBundle);
   }
 }
 
@@ -211,8 +228,9 @@ if (isset($translationBundlesJs[$lang])) {
   ?>
   <meta name="csrf-token" content="<?= htmlspecialchars($csrfToken, ENT_QUOTES, 'UTF-8') ?>">
 
-  <link rel="stylesheet" href="<?= asset_url('css/datatables-standard.css') ?>?v=<?= urlencode($version) ?>">
-  <link rel="stylesheet" href="<?= asset_url('css/pages/tetapan-sistem.css') ?>?v=<?= urlencode($version) ?>">
+  <link rel="stylesheet" href="<?= asset_url('css/datatables-standard.css') ?>?v=<?= urlencode($pageAssetVersion) ?>">
+  <link rel="stylesheet" href="<?= base_url('assets/vendor/select2/css/select2.min.css') ?>?v=<?= urlencode($pageAssetVersion) ?>">
+  <link rel="stylesheet" href="<?= asset_url('css/pages/tetapan-sistem.css') ?>?v=<?= urlencode($pageAssetVersion) ?>">
 
   <!-- Translation map (senyap) -->
   <script>
@@ -242,7 +260,7 @@ if (isset($translationBundlesJs[$lang])) {
   </script>
 </head>
 
-<body id="body-layout"
+<body id="body-layout" class="system-settings-page"
       data-topbar-color="<?= htmlspecialchars($_SESSION['theme.topbar'] ?? 'light', ENT_QUOTES, 'UTF-8') ?>"
       data-menu-color="<?= htmlspecialchars($_SESSION['theme.menu']   ?? 'light', ENT_QUOTES, 'UTF-8') ?>"
       data-layout="vertical"
@@ -260,8 +278,12 @@ if (isset($translationBundlesJs[$lang])) {
           <div class="row mb-3">
             <div class="col-12">
               <div class="page-title-box d-flex justify-content-between align-items-center flex-wrap">
-                <h4 class="page-title"><i class="ri-settings-3-line me-1"></i> <?= __('config_system') ?? 'Konfigurasi Sistem' ?></h4>
+                <div class="system-settings-title-main">
+                  <h4 class="page-title"><i class="ri-settings-3-line"></i> <?= h(__('config_system')) ?></h4>
+                  <p class="system-settings-subtitle"><?= h(__('config_page_intro')) ?></p>
+                </div>
                 <div class="page-title-right">
+                  <span class="system-version-badge"><i class="ri-git-branch-line"></i><?= h(app_current_version_label()) ?></span>
                   <ol class="breadcrumb m-0">
                     <li class="breadcrumb-item"><a href="dashboard.php"><i class="ri-home-4-line align-middle me-1"></i> <?= __('breadcrumb_home') ?? 'Home' ?></a></li>
                     <li class="breadcrumb-item active">
@@ -273,9 +295,15 @@ if (isset($translationBundlesJs[$lang])) {
             </div>
           </div>
 
+          <section class="system-settings-workspace">
+          <div class="system-settings-notice">
+            <i class="ri-information-line"></i>
+            <span><?= h(__('config_page_global_notice')) ?></span>
+          </div>
+
           <!-- Tab Navigasi -->
-          <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
-            <ul class="nav nav-tabs flex-grow-1" role="tablist">
+          <div class="system-settings-tabs-wrap">
+            <ul class="nav nav-tabs" id="systemSettingsTabs" role="tablist">
               <li class="nav-item">
                 <a class="nav-link <?= (($_GET['tab'] ?? '') === 'general' || !isset($_GET['tab'])) ? 'active' : '' ?>" data-bs-toggle="tab" href="#general-tab" role="tab" aria-selected="<?= (($_GET['tab'] ?? '') === 'general' || !isset($_GET['tab'])) ? 'true' : 'false' ?>">
                   <i class="ri-settings-3-line me-1"></i> <?= __('config_tab_general') ?? 'Umum' ?>
@@ -306,14 +334,16 @@ if (isset($translationBundlesJs[$lang])) {
                   <i class="ri-translate-2 me-1"></i> <?= __('config_tab_bahasa') ?? 'Bahasa' ?>
                 </a>
               </li>
+              <li class="nav-item">
+                <a class="nav-link <?= ($_GET['tab'] ?? '') === 'ai-chatbot' ? 'active' : '' ?>" data-bs-toggle="tab" href="#ai-chatbot-tab" role="tab" aria-selected="<?= ($_GET['tab'] ?? '') === 'ai-chatbot' ? 'true' : 'false' ?>">
+                  <i class="ri-chat-3-line me-1"></i> <?= __('config_tab_ai_chatbot') ?? 'AI Chatbot' ?>
+                </a>
+              </li>
             </ul>
-            <div class="ms-auto">
-              <span class="badge bg-secondary-subtle text-secondary border border-secondary-subtle fw-semibold"><?= h(app_current_version_label()) ?></span>
-            </div>
           </div>
 
           <!-- Kandungan Tab -->
-          <div class="tab-content pt-3">
+          <div class="tab-content system-settings-tab-content">
 
             <?php include __DIR__ . '/partials/tetapan-sistem/tab-general.php'; ?>
 
@@ -327,7 +357,10 @@ if (isset($translationBundlesJs[$lang])) {
 
             <?php include __DIR__ . '/partials/tetapan-sistem/tab-language.php'; ?>
 
+            <?php include __DIR__ . '/partials/tetapan-sistem/tab-ai-chatbot.php'; ?>
+
           </div><!-- /tab-content -->
+          </section>
         </div>
       </div>
 
@@ -343,6 +376,19 @@ if (isset($translationBundlesJs[$lang])) {
     $NEED_SELECT2_JS = false;
     include __DIR__ . '/../includes/script.php';
   ?>
+  <script>
+    (function () {
+      var script = document.createElement('script');
+      script.src = <?= json_encode(base_url('assets/vendor/select2/js/select2.full.min.js') . '?v=' . time(), JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?>;
+      script.onload = function () {
+        window.__select2ScriptLoaded = true;
+        if (typeof window.__initAiChatbotModelSelect2 === 'function') {
+          window.__initAiChatbotModelSelect2();
+        }
+      };
+      document.head.appendChild(script);
+    })();
+  </script>
 
 
   <script>
@@ -687,6 +733,16 @@ if (isset($translationBundlesJs[$lang])) {
         }
       }
 
+      function inlineSetPageLoading(key, loading, message) {
+        window.__tetapanInlineLoaderTokens = window.__tetapanInlineLoaderTokens || {};
+        if (loading) {
+          window.__tetapanInlineLoaderTokens[key] = message || (((window.__ && window.__('config_js_btn_loading_save')) || 'Saving...'));
+          return;
+        }
+
+        delete window.__tetapanInlineLoaderTokens[key];
+      }
+
       function inlineLanguageGuard(activeForm) {
         if (!activeForm) {
           return false;
@@ -734,6 +790,7 @@ if (isset($translationBundlesJs[$lang])) {
         }
 
         inlineSetButtonLoading(button, true);
+        inlineSetPageLoading('fallbackAjaxSubmit', true, (((window.__ && window.__('config_js_saving_changes')) || (window.__ && window.__('config_js_btn_loading_save')) || 'Saving...')));
 
         var formData = new FormData(targetForm);
         formData.set('ajax', '1');
@@ -792,6 +849,7 @@ if (isset($translationBundlesJs[$lang])) {
             })
           .finally(function () {
             inlineSetButtonLoading(button, false);
+            inlineSetPageLoading('fallbackAjaxSubmit', false);
           });
 
         return false;
@@ -907,6 +965,7 @@ if (isset($translationBundlesJs[$lang])) {
             btnUji.dataset.originalHtml = btnUji.innerHTML;
           }
           btnUji.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> ' + (((window.__ && window.__('config_js_uji_emel_btn_loading')) || 'Testing...'));
+          window.__tetapanInlineEmailLoaderToken = (((window.__ && window.__('config_js_uji_emel_btn_loading')) || 'Testing...'));
 
             fetch(baseUrl + 'ajax/uji-emel.php', {
               method: 'POST',
@@ -952,6 +1011,7 @@ if (isset($translationBundlesJs[$lang])) {
             .finally(function () {
               btnUji.disabled = false;
               btnUji.innerHTML = btnUji.dataset.originalHtml || '<i class="ri-mail-send-line me-1"></i> ' + (((window.__ && window.__('config_js_uji_emel_btn_default')) || 'Uji Sambungan Emel'));
+              window.__tetapanInlineEmailLoaderToken = null;
             });
         });
 
@@ -980,12 +1040,20 @@ if (isset($translationBundlesJs[$lang])) {
         sybase_operational_mode: <?= json_encode($dbRenderOperationalMode, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>
       },
       dbRuntime: <?= json_encode($dbRuntime, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) ?>,
-      additionalConnections: <?= json_encode($additionalConnections, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>
+      additionalConnections: <?= json_encode($additionalConnections, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>,
+      additionalDiagnostics: <?= json_encode($additionalDiagnostics, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>
     };
   </script>
   <script>
+    window.__tetapanUseExternalAdditionalModule = true;
     (function () {
       'use strict';
+
+      // Additional Connections diurus oleh assets/js/pages/tetapan-sistem.js.
+      // Kekalkan blok legacy ini sebagai fallback deployment lama sahaja.
+      if (window.__tetapanUseExternalAdditionalModule) {
+        return;
+      }
 
       var cfg = window.tetapanSistemConfig || {};
       var baseUrl = typeof cfg.baseUrl === 'string' ? cfg.baseUrl : '';
@@ -1209,6 +1277,28 @@ if (isset($translationBundlesJs[$lang])) {
         }).join('');
       }
 
+      function parseEnvExtraJson(value) {
+        if (!value) return {};
+        if (typeof value === 'object') return value;
+        try {
+          var decoded = JSON.parse(String(value || '{}'));
+          return decoded && typeof decoded === 'object' ? decoded : {};
+        } catch (e) {
+          return {};
+        }
+      }
+
+      function extraBool(extra, keys, defaultValue) {
+        for (var i = 0; i < keys.length; i++) {
+          if (Object.prototype.hasOwnProperty.call(extra, keys[i])) {
+            var value = extra[keys[i]];
+            if (typeof value === 'boolean') return value;
+            return ['1', 'true', 'yes', 'on'].indexOf(String(value || '').toLowerCase()) !== -1;
+          }
+        }
+        return !!defaultValue;
+      }
+
       function buildEnvRow(row, index) {
         var safe = Object.assign({
           f_environment: 'production',
@@ -1221,8 +1311,12 @@ if (isset($translationBundlesJs[$lang])) {
           f_username: '',
           f_password_ciphertext: '',
           f_charset: 'utf8mb4',
+          f_extra_json: null,
           f_is_active: true
         }, row || {});
+        var extra = parseEnvExtraJson(safe.f_extra_json);
+        var trustServerCertificate = extraBool(extra, ['trust_server_certificate', 'TrustServerCertificate'], false);
+        var encryptConnection = extraBool(extra, ['encrypt', 'Encrypt'], false);
 
         return ''
           + '<div class="db-additional-env-row" data-env-row>'
@@ -1242,6 +1336,8 @@ if (isset($translationBundlesJs[$lang])) {
           + '<div class="col-md-4"><label class="form-label">Username</label><input type="text" class="form-control" data-env-field="f_username" value="' + escapeHtml(safe.f_username) + '"></div>'
           + '<div class="col-md-4"><label class="form-label">Password</label><input type="password" class="form-control" data-env-field="f_password_ciphertext" value="' + escapeHtml(safe.f_password_ciphertext) + '"></div>'
           + '<div class="col-md-4"><label class="form-label">Charset</label><input type="text" class="form-control" data-env-field="f_charset" value="' + escapeHtml(safe.f_charset) + '"></div>'
+          + '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-env-extra="encrypt"' + (encryptConnection ? ' checked' : '') + '><label class="form-check-label">Encrypt connection</label><div class="db-additional-inline-help">Untuk SQL Server driver moden. Biarkan off jika guna dblib/FreeTDS biasa.</div></div></div>'
+          + '<div class="col-md-6"><div class="form-check form-switch"><input class="form-check-input" type="checkbox" data-env-extra="trust_server_certificate"' + (trustServerCertificate ? ' checked' : '') + '><label class="form-check-label">Trust server certificate</label><div class="db-additional-inline-help">Tick jika SQL Server guna self-signed/internal certificate dan ODBC Driver 18 menolak certificate chain.</div></div></div>'
           + '</div>'
           + '</div>';
       }
@@ -1320,6 +1416,13 @@ if (isset($translationBundlesJs[$lang])) {
             }
             payload[key] = String(field.value || '').trim();
           });
+          var extra = {};
+          Array.prototype.forEach.call(row.querySelectorAll('[data-env-extra]'), function (field) {
+            var key = field.getAttribute('data-env-extra');
+            if (!key) return;
+            extra[key] = field.type === 'checkbox' ? !!field.checked : String(field.value || '').trim();
+          });
+          payload.f_extra_json = JSON.stringify(extra);
           return payload;
         });
       }
@@ -1900,6 +2003,8 @@ if (isset($translationBundlesJs[$lang])) {
           + "        }\n"
           + "    }\n"
           + "}\n";
+        // audit-scan-sample-code: begin
+        // The following SQL write statements are rendered as developer examples only.
         var transactionSample = "<" + "?php\n"
           + "require_once __DIR__ . '/../classes/Database.php';\n\n"
           + "$pdo = Database::pdoAdditional('" + code + "', '" + environment + "');\n\n"
@@ -2028,6 +2133,7 @@ if (isset($translationBundlesJs[$lang])) {
           + "    $local->rollBack();\n"
           + "    throw $e;\n"
           + "}\n";
+        // audit-scan-sample-code: end
         var samples = [
           {
             id: 'service',
@@ -2188,9 +2294,6 @@ if (isset($translationBundlesJs[$lang])) {
                 columnDefs: [{ targets: 0, width: '180px' }]
               }
             });
-            return;
-
-            alertSuccess(response.message || 'Maklumat sambungan tambahan berjaya dimuatkan.');
           })
           .catch(function (error) {
             alertError(error && error.message ? error.message : 'Gagal memuatkan butiran sambungan tambahan.');
@@ -2257,9 +2360,6 @@ if (isset($translationBundlesJs[$lang])) {
                 columnDefs: [{ targets: 2, orderable: false, searchable: false }]
               }
             });
-            return;
-
-            alertSuccess(response.message || 'Schema preview berjaya dimuatkan.');
           })
           .catch(function (error) {
             alertError(error && error.message ? error.message : 'Gagal memuatkan schema preview sambungan tambahan.');
@@ -2332,9 +2432,6 @@ if (isset($translationBundlesJs[$lang])) {
                 columnDefs: [{ targets: columns.length, orderable: false, searchable: false, width: '10%' }]
               }
             });
-            return;
-
-            alertSuccess(response.message || 'Data preview berjaya dimuatkan.');
           })
           .catch(function (error) {
             alertError(error && error.message ? error.message : 'Gagal memuatkan data preview sambungan tambahan.');
@@ -2370,9 +2467,9 @@ if (isset($translationBundlesJs[$lang])) {
       });
     })();
   </script>
-  <script src="<?= asset_url('js/helpers/page-ui-helper.js') ?>?v=<?= urlencode($version) ?>"></script>
-  <script src="<?= asset_url('js/helpers/datatables-standard.js') ?>?v=<?= urlencode($version) ?>"></script>
-  <script src="<?= asset_url('js/pages/tetapan-sistem.js') ?>?v=<?= urlencode($version) ?>"></script>
+  <script src="<?= asset_url('js/helpers/page-ui-helper.js') ?>?v=<?= urlencode($pageAssetVersion) ?>"></script>
+  <script src="<?= asset_url('js/helpers/datatables-standard.js') ?>?v=<?= urlencode($pageAssetVersion) ?>"></script>
+  <script src="<?= asset_url('js/pages/tetapan-sistem.js') ?>?v=<?= urlencode($pageAssetVersion) ?>"></script>
   <script>
     (function () {
       'use strict';

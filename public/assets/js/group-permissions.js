@@ -82,6 +82,7 @@ const GroupPermissions = {
   },
   
   showLoading() {
+    GroupUtils.showLoader('groupPermissions', this.T.loading || this.T.loading_access || 'Loading...');
     this.loadEl?.classList.remove('d-none');
     this.errEl?.classList.add('d-none');
     this.cntEl?.classList.add('d-none');
@@ -89,6 +90,8 @@ const GroupPermissions = {
   },
   
   showError(msg) {
+    GroupUtils.hideLoader('groupPermissions');
+    GroupUtils.hideLoader('groupPermissionsModal');
     this.loadEl?.classList.add('d-none');
     if (this.errEl) {
       this.errEl.textContent = msg || this.T.error_unknown || '';
@@ -120,6 +123,7 @@ const GroupPermissions = {
   },
 
   showContent(html) {
+    GroupUtils.hideLoader('groupPermissions');
     this.loadEl?.classList.add('d-none');
     this.errEl?.classList.add('d-none');
     if (this.cntEl) {
@@ -173,8 +177,8 @@ const GroupPermissions = {
       '<table class="table table-striped table-bordered align-middle w-100" id="groupPermsDT">' +
       '<thead class="table-light"><tr>' +
       '<th class="col-check">#</th>' +
-      '<th class="col-modul">Modul</th>' +
-      '<th class="col-menu text-center">Menu</th>' +
+      '<th class="col-modul">' + GroupUtils.esc(this.T.userGroup_col_module_access || this.T.label_module || '') + '</th>' +
+      '<th class="col-menu text-center">' + GroupUtils.esc(this.T.userGroup_col_menu_access || this.T.label_menu || '') + '</th>' +
       '</tr></thead><tbody></tbody>' +
       '</table>';
 
@@ -275,6 +279,7 @@ const GroupPermissions = {
     this.pickCntEl.classList.add('d-none');
     this.pickErrEl.classList.add('d-none');
     this.pickLoadEl.classList.remove('d-none');
+    GroupUtils.showLoader('groupPermissionsModal', this.T.loading || this.T.pick_menu_button || 'Loading...');
     this.pickSubEl.textContent = modulName ? (' — ' + modulName) : '';
 
     try {
@@ -291,7 +296,17 @@ const GroupPermissions = {
         list.forEach(m => {
           const on = cur.has(m.id);
           html += '<a href="#" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center menu-toggle" data-menu-id="' + GroupUtils.esc(m.id) + '">';
-          html += '<span><i class="ri-pages-line me-2"></i>' + GroupUtils.esc(m.name) + (m.path ? ' <span class="menu-path">(' + GroupUtils.esc(m.path) + ')</span>' : '') + '</span>';
+          html += '<span class="min-w-0">';
+          html += '<span class="d-block fw-semibold"><i class="ri-pages-line me-2"></i>' + GroupUtils.esc(m.name) + '</span>';
+          html += '<span class="d-flex flex-wrap align-items-center gap-1 mt-1">';
+          if (m.subgroupName) {
+            html += '<span class="badge rounded-pill border bg-secondary-subtle text-secondary-emphasis border-secondary-subtle"><i class="ri-folder-2-line me-1"></i>' + GroupUtils.esc(m.subgroupName) + '</span>';
+          }
+          if (m.path) {
+            html += '<span class="menu-path">(' + GroupUtils.esc(m.path) + ')</span>';
+          }
+          html += '</span>';
+          html += '</span>';
           html += '<span class="badge ' + (on ? 'bg-success' : 'bg-secondary') + '">' + GroupUtils.esc(on ? (this.T.pick_menu_on || this.T.status_on || '') : (this.T.pick_menu_off || this.T.status_off || '')) + '</span>';
           html += '</a>';
         });
@@ -301,6 +316,7 @@ const GroupPermissions = {
       this.showContent_safeAssign(this.pickCntEl, html);
       this.pickLoadEl.classList.add('d-none');
       this.pickCntEl.classList.remove('d-none');
+      GroupUtils.hideLoader('groupPermissionsModal');
 
       this.pickCntEl.querySelectorAll('.menu-toggle').forEach(a => {
         a.addEventListener('click', (ev) => {
@@ -326,6 +342,7 @@ const GroupPermissions = {
       this.pickLoadEl.classList.add('d-none');
       this.pickErrEl.textContent = e.message || this.T.error_network || '';
       this.pickErrEl.classList.remove('d-none');
+      GroupUtils.hideLoader('groupPermissionsModal');
     }
   },
   
@@ -342,6 +359,7 @@ const GroupPermissions = {
     this.ringCntEl.classList.add('d-none');
     this.ringErrEl.classList.add('d-none');
     this.ringLoadEl.classList.remove('d-none');
+    GroupUtils.showLoader('groupPermissionsModal', this.T.loading || this.T.modal_summary_title || 'Loading...');
 
     try {
       const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl('group-access.php', { groupID: GroupState.getGroupID() }));
@@ -367,7 +385,15 @@ const GroupPermissions = {
             menus.forEach(me => {
               const nm = me.nama || me.menuName || me.kod || '-';
               const p = me.path || me.f_path || '';
-              listHtml += '<li>' + GroupUtils.esc(nm) + (p ? ' <span class="menu-path">(' + GroupUtils.esc(p) + ')</span>' : '') + '</li>';
+              const sg = me.subgroupName || me.subgroup_name || '';
+              listHtml += '<li>' + GroupUtils.esc(nm);
+              if (sg) {
+                listHtml += ' <span class="badge rounded-pill border bg-secondary-subtle text-secondary-emphasis border-secondary-subtle"><i class="ri-folder-2-line me-1"></i>' + GroupUtils.esc(sg) + '</span>';
+              }
+              if (p) {
+                listHtml += ' <span class="menu-path">(' + GroupUtils.esc(p) + ')</span>';
+              }
+              listHtml += '</li>';
             });
             listHtml += '</ul>';
           }
@@ -381,10 +407,12 @@ const GroupPermissions = {
       this.showContent_safeAssign(this.ringCntEl, html);
       this.ringLoadEl.classList.add('d-none');
       this.ringCntEl.classList.remove('d-none');
+      GroupUtils.hideLoader('groupPermissionsModal');
     } catch (e) {
       this.ringLoadEl.classList.add('d-none');
       this.ringErrEl.textContent = e.message || this.T.error_network || '';
       this.ringErrEl.classList.remove('d-none');
+      GroupUtils.hideLoader('groupPermissionsModal');
     }
   },
   
@@ -411,7 +439,13 @@ const GroupPermissions = {
           return;
         }
 
-        if (window.MenuAccess && typeof window.MenuAccess.refreshGroupTableRow === 'function') {
+        if (window.MenuAccess && typeof window.MenuAccess.upsertGroupTableRow === 'function' && j.group) {
+          window.MenuAccess.upsertGroupTableRow(Object.assign({}, j.group, {
+            groupID: currentGroupId,
+            groupKod: j.group.kod || this.currentGroupData?.kod || '',
+            groupName: j.group.nama || this.currentGroupData?.nama || ''
+          }));
+        } else if (window.MenuAccess && typeof window.MenuAccess.refreshGroupTableRow === 'function') {
           await window.MenuAccess.refreshGroupTableRow(currentGroupId, {
             groupID: currentGroupId,
             groupKod: this.currentGroupData?.kod || '',

@@ -1,5 +1,12 @@
 <?php
-// ajax/user-delete.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/user-delete.php
 // Delete user from tbl_m_user
 declare(strict_types=1);
 
@@ -14,6 +21,10 @@ try {
     require_once __DIR__ . '/_helpers.php';
     require_once __DIR__ . '/../includes/functions-db.php';
     logAjaxUnexpectedOutput('user-delete:init.php', $initOutput);
+
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        jsonErrorResponse((string)__('userList_ajax_method_not_allowed'), 405);
+    }
 
     if (empty($_SESSION['f_stafID'])) {
         jsonErrorResponse((string)(__('unauthorized_access') ?: 'Sila log masuk terlebih dahulu.'), 401);
@@ -37,9 +48,6 @@ try {
     $currentProfile = $userModel->getProfile($currentStafID);
     
     $isSuperAdmin = $currentProfile && function_exists('is_user_super_admin') && is_user_super_admin($currentProfile, $pdo);
-    if (!$isSuperAdmin) {
-        jsonErrorResponse((string)__('userList_ajax_delete_permission_superadmin'), 403);
-    }
 
     $normalizeIdentity = static function (?string $value): string {
         return str_replace('-', '', trim((string)$value));
@@ -216,6 +224,7 @@ try {
     $payload = $readPayload();
     $userID = $payload['userID'];
     $userData = $fetchTargetUser($pdo, $userID);
+    userListEnsureTargetUserDeletable($pdo, $userData);
     if (strtoupper(trim((string)($userData['f_categoryUser'] ?? ''))) === 'PELAJAR' && function_exists('is_student_mode_enabled') && !is_student_mode_enabled()) {
         jsonErrorResponse((string)__('studentSearch_mode_disabled'), 403);
     }

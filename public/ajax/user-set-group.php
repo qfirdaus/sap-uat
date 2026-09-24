@@ -1,5 +1,12 @@
 <?php
-// ajax/user-set-group.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/user-set-group.php
 declare(strict_types=1);
 
 error_reporting(E_ALL);
@@ -13,6 +20,10 @@ try {
     require_once __DIR__ . '/_helpers.php';
     require_once __DIR__ . '/../includes/functions-db.php';
     logAjaxUnexpectedOutput('user-set-group:init.php', $initOutput);
+
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        jsonErrorResponse((string)__('userList_ajax_method_not_allowed'), 405);
+    }
 
     if (empty($_SESSION['f_stafID'])) {
         jsonErrorResponse((string)(__('unauthorized_access') ?: 'Sila log masuk terlebih dahulu.'), 401);
@@ -47,10 +58,7 @@ function actor_name(): string {
 
 function readUserSetGroupPayload(): array {
     $rawInput = file_get_contents('php://input');
-    error_log("[user-set-group] RAW INPUT: " . $rawInput);
-
     $data = json_decode($rawInput, true) ?: [];
-    error_log("[user-set-group] PARSED DATA: " . json_encode($data));
 
     $userID = (int)($data['userID'] ?? 0);
     $groupID = (int)($data['groupID'] ?? 0);
@@ -59,8 +67,6 @@ function readUserSetGroupPayload(): array {
     $hasGroup = ($groupID > 0);
     $password = (string)($data['password'] ?? '');
     $passwordConfirm = (string)($data['password_confirm'] ?? '');
-
-    error_log("[user-set-group] PARSED VALUES: userID=$userID, groupID=$groupID, hasFlag=" . ($hasFlag ? 'true' : 'false') . ", flag=" . ($flag !== null ? $flag : 'null') . ", hasPassword=" . ($password !== '' ? 'true' : 'false'));
 
     if ($userID <= 0) {
         json_fail((string)__('userList_ajax_incomplete_params_userid'), 422);
@@ -489,6 +495,7 @@ try {
     $hasGroupKod = $schema['hasGroupKod'];
 
     $userContext = fetchUserGroupContext($db, $userID, $hasGroupID, $hasGroupKod);
+    userListEnsureTargetUserEditable($db, $userID);
     if (($userContext['userCategory'] ?? '') === 'PELAJAR' && function_exists('is_student_mode_enabled') && !is_student_mode_enabled()) {
         json_fail((string)__('studentSearch_mode_disabled'), 403);
     }
@@ -524,6 +531,9 @@ try {
     $oldFlag = $userContext['oldFlag'];
 
     $targetGroup = resolveTargetGroup($db, $hasGroup, $groupID, $oldID, $oldKod, $oldName);
+    if ($hasGroup) {
+        userListEnsureAssignableGroup($db, $groupID);
+    }
     $gid = $targetGroup['gid'];
     $gkod = $targetGroup['gkod'];
     $gnam = $targetGroup['gnam'];
@@ -620,8 +630,5 @@ try {
     }
     error_log('[user-set-group] Error: '.$e->getMessage().' | File: '.$e->getFile().' | Line: '.$e->getLine().' | Trace: '.$e->getTraceAsString());
     $errorMsg = (string)__('userList_ajax_system_error');
-    if (defined('APP_DEBUG') && APP_DEBUG) {
-        $errorMsg = 'Ralat server: '.$e->getMessage().' (File: '.basename($e->getFile()).', Line: '.$e->getLine().')';
-    }
     json_fail($errorMsg, 500);
 }

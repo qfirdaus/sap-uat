@@ -1,5 +1,12 @@
 <?php
-// ajax/user-list-staf-options.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/user-list-staf-options.php
 // Return HTML options for staf dropdown (for refresh after delete/add)
 // With caching (5 min TTL) and rate limiting
 declare(strict_types=1);
@@ -38,7 +45,7 @@ try {
         http_response_code(429);
         echo json_encode([
             'error' => true,
-            'message' => 'Terlalu banyak permintaan. Sila cuba lagi selepas beberapa saat.',
+            'message' => (string)__('userList_ajax_rate_limited'),
             'html' => ''
         ], JSON_UNESCAPED_UNICODE);
         exit;
@@ -263,7 +270,7 @@ try {
 
     $payload = json_encode([
         'error' => true,
-        'message' => 'Ralat sistem semasa memuat senarai staf.',
+        'message' => (string)__('userList_ajax_load_staff_error'),
         'html' => ''
     ], JSON_UNESCAPED_UNICODE);
     $payload = preg_replace('/^\x{FEFF}/u', '', $payload);

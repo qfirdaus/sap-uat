@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 // pages/profile.php
 declare(strict_types=1);
 
@@ -157,7 +165,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
 <body
   data-topbar-color="<?= h($_SESSION['theme.topbar'] ?? 'light') ?>"
   data-menu-color="<?= h($_SESSION['theme.menu'] ?? $_SESSION['theme.sidebar'] ?? 'dark') ?>"
-  data-layout="vertical" data-sidebar-size="default" class="loading">
+  data-layout="vertical" data-sidebar-size="default" class="loading profile-page">
 
 <div class="wrapper">
   <?php include __DIR__ . '/../includes/topbar.php'; ?>
@@ -200,19 +208,75 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
           $gred      = $profileView['gred']       ?? '';
           $jabatan   = $profileView['jabatan']    ?? '';
           $stafID    = $profileView['stafID']     ?? '';
+          $loginID   = $profileView['loginID']    ?? '';
           $nopek     = $profileView['nopekerja']  ?? '';
           $emel      = $profileView['emel']       ?? '';
-          $categoryUser = strtoupper(trim((string)($profileView['categoryUser'] ?? '')));
-          $isStudentProfile = in_array($categoryUser, ['PELAJAR', 'STUDENT'], true) || !empty($_SESSION['student_profile']);
+          $categoryCandidates = [
+            $profileView['categoryUser'] ?? null,
+            $profileView['f_categoryUser'] ?? null,
+            $_SESSION['f_categoryUser'] ?? null,
+            $_SESSION['user']['f_categoryUser'] ?? null,
+          ];
+          $categoryUser = '';
+          foreach ($categoryCandidates as $categoryCandidate) {
+            $categoryCandidate = strtoupper(trim((string)$categoryCandidate));
+            $normalizedCategory = match ($categoryCandidate) {
+              'STUDENT' => 'PELAJAR',
+              'PUBLIC' => 'UMUM',
+              default => $categoryCandidate,
+            };
+            if (in_array($normalizedCategory, ['STAF', 'PELAJAR', 'UMUM'], true)) {
+              $categoryUser = $normalizedCategory;
+              break;
+            }
+          }
+          if ($categoryUser === '') {
+            $identityCandidate = trim((string)($loginID !== '' ? $loginID : $stafID));
+            if (!empty($_SESSION['student_profile'])) {
+              $categoryUser = 'PELAJAR';
+            } elseif (trim((string)$nopek) !== '' || preg_match('/^\d{4}-\d{2}$/', $identityCandidate) === 1) {
+              $categoryUser = 'STAF';
+            } elseif ($identityCandidate !== '' && !str_contains($identityCandidate, '@')) {
+              $categoryUser = 'PELAJAR';
+            } else {
+              $categoryUser = 'UMUM';
+            }
+          }
+          $isStudentProfile = $categoryUser === 'PELAJAR';
+          $isPublicProfile = in_array($categoryUser, ['UMUM', 'PUBLIC'], true);
+          $isStaffProfile = !$isStudentProfile && !$isPublicProfile;
+          $identityValue = ($isStaffProfile || $isStudentProfile) ? trim((string)$stafID) : '';
           $copyIdLabel = $isStudentProfile
             ? tr('profile_btn_copy_no_matrik', 'Salin No. Matrik')
             : tr('profile_btn_copy_no_staf', 'Salin No. Staf');
           $idLabel = $isStudentProfile
             ? tr('profile_no_matrik', 'No. Matrik')
             : tr('profile_no_staf', 'No. Staf');
+          $showIdentityStat = $identityValue !== '';
+          $showEmployeeStat = $isStaffProfile && trim((string)$nopek) !== '';
+          $positionLabel = $isStudentProfile
+            ? tr('profile_program', 'Program')
+            : tr('profile_jawatan', 'Jawatan');
+          $departmentLabel = $isStudentProfile
+            ? tr('profile_faculty', 'Fakulti')
+            : tr('profile_jabatan', 'Jabatan');
+          $emptyPositionLabel = $isStudentProfile
+            ? tr('profile_no_program_info', 'Tiada maklumat program')
+            : tr('profile_no_job_info', 'Tiada maklumat jawatan');
+          $emptyDepartmentLabel = $isStudentProfile
+            ? tr('profile_no_faculty_info', 'Tiada maklumat fakulti')
+            : tr('profile_no_department_info', 'Tiada maklumat jabatan');
           $selectedLang = $profileView['lang']    ?? ($lang ?? 'ms');
           $jawGred   = trim($jawatan . ($gred ? ' • '.$gred : ''));
-          $activeProfileTab = (string)($_GET['tab'] ?? 'profil-pengguna');
+          $allowedProfileTabs = ['profil-pengguna', 'login-aktiviti', 'jejak-audit'];
+          $requestedProfileTab = trim((string)($_GET['tab'] ?? 'profil-pengguna'));
+          $activeProfileTab = in_array($requestedProfileTab, $allowedProfileTabs, true)
+            ? $requestedProfileTab
+            : 'profil-pengguna';
+          $hasProfileIdentity = trim((string)$namaPenuh) !== ''
+            || trim((string)$loginID) !== ''
+            || trim((string)$stafID) !== ''
+            || trim((string)$emel) !== '';
           
           // Check active session status
           $isActive = (bool)$hasActiveSession;
@@ -223,17 +287,17 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
           <!-- Tab Navigasi -->
           <ul class="nav nav-tabs profile-tabs" role="tablist" aria-label="<?= h(tr('profile_tabs_label','Tab profil pengguna')) ?>">
             <li class="nav-item">
-              <a class="nav-link <?= $activeProfileTab === 'profil-pengguna' ? 'active' : '' ?>" data-bs-toggle="tab" href="#profil-pengguna-tab" role="tab">
+              <a id="profil-pengguna-tab-trigger" class="nav-link <?= $activeProfileTab === 'profil-pengguna' ? 'active' : '' ?>" data-bs-toggle="tab" href="#profil-pengguna-tab" role="tab" aria-controls="profil-pengguna-tab" aria-selected="<?= $activeProfileTab === 'profil-pengguna' ? 'true' : 'false' ?>">
                 <i class="ri-user-line me-1"></i> <?= h(tr('profile_tab_profil_pengguna','Profil Pengguna')) ?>
               </a>
             </li>
             <li class="nav-item">
-              <a class="nav-link <?= $activeProfileTab === 'login-aktiviti' ? 'active' : '' ?>" data-bs-toggle="tab" href="#login-aktiviti-tab" role="tab">
+              <a id="login-aktiviti-tab-trigger" class="nav-link <?= $activeProfileTab === 'login-aktiviti' ? 'active' : '' ?>" data-bs-toggle="tab" href="#login-aktiviti-tab" role="tab" aria-controls="login-aktiviti-tab" aria-selected="<?= $activeProfileTab === 'login-aktiviti' ? 'true' : 'false' ?>">
                 <i class="ri-login-box-line me-1"></i> <?= h(tr('profile_tab_login_aktiviti','Login Aktiviti')) ?>
               </a>
             </li>
             <li class="nav-item">
-              <a class="nav-link <?= $activeProfileTab === 'jejak-audit' ? 'active' : '' ?>" data-bs-toggle="tab" href="#jejak-audit-tab" role="tab">
+              <a id="jejak-audit-tab-trigger" class="nav-link <?= $activeProfileTab === 'jejak-audit' ? 'active' : '' ?>" data-bs-toggle="tab" href="#jejak-audit-tab" role="tab" aria-controls="jejak-audit-tab" aria-selected="<?= $activeProfileTab === 'jejak-audit' ? 'true' : 'false' ?>">
                 <i class="ri-file-list-3-line me-1"></i> <?= h(tr('profile_tab_jejak_audit','Jejak Audit')) ?>
               </a>
             </li>
@@ -250,7 +314,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
               </div>
             <?php endif; ?>
             
-            <?php if ($stafID === '' && !$errorMessage): ?>
+            <?php if (!$hasProfileIdentity && !$errorMessage): ?>
               <div class="alert alert-warning d-flex align-items-center" role="alert">
                 <i class="ri-alert-line me-2"></i>
                 <div>
@@ -263,7 +327,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
             <?php endif; ?>
 
             <!-- Tab 1: Profil Pengguna -->
-            <div class="tab-pane fade <?= $activeProfileTab === 'profil-pengguna' ? 'show active' : '' ?>" id="profil-pengguna-tab" role="tabpanel">
+            <div class="tab-pane fade <?= $activeProfileTab === 'profil-pengguna' ? 'show active' : '' ?>" id="profil-pengguna-tab" role="tabpanel" aria-labelledby="profil-pengguna-tab-trigger">
               <div class="profile-overview-grid">
                 <div class="profile-panel">
                   <div class="profile-panel-header">
@@ -293,7 +357,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
                           <div class="profile-identity-chips">
                             <?php if ($jawGred !== ''): ?>
                               <span class="chip">
-                                <i class="ri-briefcase-2-line"></i><?= h($jawGred) ?>
+                                <i class="<?= $isStudentProfile ? 'ri-graduation-cap-line' : 'ri-briefcase-2-line' ?>"></i><?= h($jawGred) ?>
                               </span>
                             <?php endif; ?>
                             <?php if ($jabatan !== ''): ?>
@@ -304,11 +368,11 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
                           </div>
                         </div>
                         <div class="quick-actions profile-identity-actions">
-                          <?php if ($stafID !== ''): ?>
+                          <?php if ($identityValue !== ''): ?>
                             <button class="btn btn-sm btn-copy-staf"
                                     type="button"
                                     aria-label="<?= h($copyIdLabel) ?>"
-                                    data-copy-value="<?= h($stafID) ?>">
+                                    data-copy-value="<?= h($identityValue) ?>">
                               <i class="ri-file-copy-2-line me-1" aria-hidden="true"></i>
                               <?= h($copyIdLabel) ?>
                             </button>
@@ -327,36 +391,42 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
                       </div>
                     </div>
 
-                    <div class="profile-stat-row">
-                      <div class="profile-stat-card">
-                        <div class="profile-stat-label">
-                          <i class="ri-account-box-line"></i>
-                          <?= h($idLabel) ?>
-                        </div>
-                        <div class="profile-stat-value"><?= h($stafID !== '' ? $stafID : '—') ?></div>
+                    <?php if ($showIdentityStat || $showEmployeeStat): ?>
+                      <div class="profile-stat-row">
+                        <?php if ($showIdentityStat): ?>
+                          <div class="profile-stat-card">
+                            <div class="profile-stat-label">
+                              <i class="ri-account-box-line"></i>
+                              <?= h($idLabel) ?>
+                            </div>
+                            <div class="profile-stat-value"><?= h($identityValue) ?></div>
+                          </div>
+                        <?php endif; ?>
+                        <?php if ($showEmployeeStat): ?>
+                          <div class="profile-stat-card">
+                            <div class="profile-stat-label">
+                              <i class="ri-fingerprint-line"></i>
+                              <?= h(tr('profile_no_pekerja','No. Pekerja')) ?>
+                            </div>
+                            <div class="profile-stat-value"><?= h($nopek) ?></div>
+                          </div>
+                        <?php endif; ?>
                       </div>
-                      <div class="profile-stat-card">
-                        <div class="profile-stat-label">
-                          <i class="ri-fingerprint-line"></i>
-                          <?= h(tr('profile_no_pekerja','No. Pekerja')) ?>
-                        </div>
-                        <div class="profile-stat-value"><?= h($nopek !== '' ? $nopek : '—') ?></div>
-                      </div>
-                    </div>
+                    <?php endif; ?>
 
                     <div class="profile-detail-list">
                       <div class="profile-detail-item">
-                        <div class="profile-detail-icon"><i class="ri-briefcase-4-line"></i></div>
+                        <div class="profile-detail-icon"><i class="<?= $isStudentProfile ? 'ri-graduation-cap-line' : 'ri-briefcase-4-line' ?>"></i></div>
                         <div>
-                          <div class="profile-detail-label"><?= h(tr('profile_jawatan','Jawatan')) ?></div>
-                          <div class="profile-detail-value"><?= h($jawatan !== '' ? $jawatan : tr('profile_no_job_info','Tiada maklumat jawatan')) ?></div>
+                          <div class="profile-detail-label"><?= h($positionLabel) ?></div>
+                          <div class="profile-detail-value"><?= h($jawatan !== '' ? $jawatan : $emptyPositionLabel) ?></div>
                         </div>
                       </div>
                       <div class="profile-detail-item">
                         <div class="profile-detail-icon"><i class="ri-building-line"></i></div>
                         <div>
-                          <div class="profile-detail-label"><?= h(tr('profile_jabatan','Jabatan')) ?></div>
-                          <div class="profile-detail-value"><?= h($jabatan !== '' ? $jabatan : tr('profile_no_department_info','Tiada maklumat jabatan')) ?></div>
+                          <div class="profile-detail-label"><?= h($departmentLabel) ?></div>
+                          <div class="profile-detail-value"><?= h($jabatan !== '' ? $jabatan : $emptyDepartmentLabel) ?></div>
                         </div>
                       </div>
                       <div class="profile-detail-item">
@@ -418,7 +488,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
                         <div class="profile-detail-item">
                           <div class="profile-detail-icon"><i class="ri-information-line"></i></div>
                           <div>
-                            <div class="profile-detail-label">Nota</div>
+                            <div class="profile-detail-label"><?= h(tr('profile_note_label', 'Nota')) ?></div>
                             <div class="profile-detail-value fw-normal">
                               <?= h(tr('profile_lang_help','Bahasa ini akan digunakan untuk akaun anda selagi bahasa tersebut masih aktif dalam sistem.')) ?>
                             </div>
@@ -437,7 +507,14 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
             </div>
 
             <!-- Tab 2: Login Aktiviti -->
-            <div class="tab-pane fade <?= $activeProfileTab === 'login-aktiviti' ? 'show active' : '' ?>" id="login-aktiviti-tab" role="tabpanel">
+            <div class="tab-pane fade <?= $activeProfileTab === 'login-aktiviti' ? 'show active' : '' ?>" id="login-aktiviti-tab" role="tabpanel" aria-labelledby="login-aktiviti-tab-trigger">
+              <div class="profile-section-heading">
+                <div class="profile-section-icon"><i class="ri-shield-keyhole-line"></i></div>
+                <div>
+                  <h5><?= h(tr('profile_login_activity_heading', 'Keselamatan Sesi')) ?></h5>
+                  <p><?= h(tr('profile_login_activity_intro', 'Semak sejarah akses, peranti yang digunakan dan tamatkan sesi aktif yang tidak lagi dikenali.')) ?></p>
+                </div>
+              </div>
               <div id="loginActivityLoading" class="skeleton-loader" style="display: none;">
                 <div class="skeleton-row"></div>
                 <div class="skeleton-row"></div>
@@ -448,7 +525,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
                 <table id="loginActivityTable" class="table table-bordered align-middle mb-0">
                   <thead>
                     <tr>
-                      <th class="profile-table-col-no text-center">No.</th>
+                      <th class="profile-table-col-no text-center"><?= h(tr('profile_table_number', 'No.')) ?></th>
                       <th class="profile-table-col-date"><?= h(tr('profile_login_date','Tarikh & Masa')) ?></th>
                       <th class="profile-table-col-ip"><?= h(tr('profile_login_ip','Alamat IP')) ?></th>
                       <th><?= h(tr('profile_login_device','Peranti')) ?></th>
@@ -474,7 +551,14 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
             </div>
 
             <!-- Tab 3: Jejak Audit -->
-            <div class="tab-pane fade <?= $activeProfileTab === 'jejak-audit' ? 'show active' : '' ?>" id="jejak-audit-tab" role="tabpanel">
+            <div class="tab-pane fade <?= $activeProfileTab === 'jejak-audit' ? 'show active' : '' ?>" id="jejak-audit-tab" role="tabpanel" aria-labelledby="jejak-audit-tab-trigger">
+              <div class="profile-section-heading">
+                <div class="profile-section-icon"><i class="ri-history-line"></i></div>
+                <div>
+                  <h5><?= h(tr('profile_audit_heading', 'Rekod Aktiviti Akaun')) ?></h5>
+                  <p><?= h(tr('profile_audit_intro', 'Jejaki aktiviti penting yang direkodkan untuk akaun ini serta keputusan setiap tindakan.')) ?></p>
+                </div>
+              </div>
               <div id="auditEventsLoading" class="skeleton-loader" style="display: none;">
                 <div class="skeleton-row"></div>
                 <div class="skeleton-row"></div>
@@ -485,7 +569,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
                 <table id="auditEventsTable" class="table table-bordered align-middle mb-0">
                   <thead>
                     <tr>
-                      <th class="profile-table-col-no text-center">No.</th>
+                      <th class="profile-table-col-no text-center"><?= h(tr('profile_table_number', 'No.')) ?></th>
                       <th class="profile-table-col-date"><?= h(tr('profile_audit_date','Tarikh & Masa')) ?></th>
                         <th class="profile-table-col-user"><?= h(tr('profile_audit_user','Pengguna')) ?></th>
                       <th class="profile-table-col-ip"><?= h(tr('profile_audit_ip','Alamat IP')) ?></th>
@@ -531,6 +615,8 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
           'copy_wait' => tr('profile_copy_wait', 'Sila tunggu sebentar sebelum menyalin lagi'),
           'copy_failed' => tr('profile_copy_failed', 'Gagal menyalin teks'),
           'copied' => tr('profile_js_copied', 'Disalin'),
+          'loading' => tr('profile_loading', 'Memuatkan…'),
+          'table_number' => tr('profile_table_number', 'No.'),
           'dt_timeout' => tr('profile_datatables_timeout', 'DataTables failed to load within timeout'),
           'refresh_failed' => tr('profile_refresh_failed', 'Ralat memuat semula data'),
           'dt_load_failed' => tr('profile_dt_load_failed', 'Ralat memuat jadual data'),
@@ -563,6 +649,9 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
           'swal_ok' => tr('profile_swal_ok', 'OK'),
           'audit_changes_separator' => tr('profile_audit_changes_separator', '-- Changes --'),
           'audit_download_failed' => tr('profile_audit_download_failed', 'Gagal memuat turun fail JSON'),
+          'audit_stat_meta' => tr('profile_audit_stat_meta', 'Meta'),
+          'audit_stat_sets' => tr('profile_audit_stat_sets', 'Set'),
+          'audit_stat_changes' => tr('profile_audit_stat_changes', 'Beza'),
           'kill_error_no_session' => tr('profile_login_kill_error_no_session', 'ID sesi tidak sah'),
           'kill_confirm_title' => tr('profile_login_kill_confirm_title', 'Tamatkan Sesi?'),
           'kill_confirm_text' => tr('profile_login_kill_confirm_text', 'Anda pasti mahu tamatkan sesi ini? Pengguna akan dipaksa log keluar.'),
@@ -579,7 +668,7 @@ $PAGE_TITLE = tr('profile_title','Profil Pengguna');
           'loginActivityLanguage' => [
               'lengthMenu' => tr('profile_dt_show', 'Papar') . ' _MENU_ ' . tr('profile_dt_records', 'rekod'),
               'search' => tr('profile_dt_search', 'Cari') . ':',
-              'emptyTable' => tr('profile_login_aktiviti_empty', 'Tiada rekod login aktiviti ditemui.'),
+              'emptyTable' => tr('profile_dt_no_records', 'Tiada rekod ditemui'),
               'zeroRecords' => tr('profile_dt_no_records', 'Tiada rekod ditemui'),
               'info' => tr('profile_dt_info', 'Paparan _START_ hingga _END_ daripada _TOTAL_ rekod'),
               'infoEmpty' => tr('profile_dt_info_empty', 'Paparan 0 hingga 0 daripada 0 rekod'),

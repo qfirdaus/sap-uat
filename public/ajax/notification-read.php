@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 ob_start();
 header('Content-Type: application/json; charset=utf-8');
@@ -17,6 +24,10 @@ try {
 
     if (!isValidCsrfToken()) {
         jsonErrorResponse((string)(__('userGroup_csrf_invalid') ?: 'CSRF token tidak sah.'), 403);
+    }
+
+    if (!checkRateLimit('notification_read', 60, 60)) {
+        jsonErrorResponse((string)(__('notification_rate_limited') ?: 'Terlalu banyak permintaan. Sila cuba sebentar lagi.'), 429);
     }
 
     $raw = file_get_contents('php://input');

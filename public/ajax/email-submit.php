@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 ob_start();
 
@@ -130,7 +137,11 @@ try {
     }
 
     if (!$sendAdmin) {
-        jsonErrorResponse(sprintf((string) __('email_submit_admin_mail_failed'), $mailer->getLastError()), 500);
+        jsonExceptionResponse(
+            $mailer->lastFailureAsExternalServiceException(sprintf((string) __('email_submit_admin_mail_failed'), $mailer->getLastError())),
+            sprintf((string) __('email_submit_admin_mail_failed'), $mailer->getLastError()),
+            ['endpoint' => 'email-submit', 'stage' => 'admin_notification']
+        );
     }
 
     $userEmail = trim((string) ($data['f_email_alternatif'] ?? ''));
@@ -150,18 +161,28 @@ try {
             );
         }
 
-        if ($mailer->send(
+        $sendUser = $mailer->send(
             $userEmail,
             sprintf((string) __('email_mail_user_subject'), $noPermohonan),
             $htmlUser,
             $textUser
-        )) {
+        );
+        if ($sendUser) {
             $stmt = $pdo->prepare('UPDATE tbl_permohonan_email SET f_email_user_sent = 1 WHERE f_permohonanID = :id');
             $stmt->execute([':id' => $draftID]);
+        } else {
+            FrameworkExceptionHandler::log($mailer->lastFailureAsExternalServiceException('Applicant notification email could not be sent.'), [
+                'endpoint' => 'email-submit',
+                'stage' => 'applicant_notification',
+            ]);
         }
     }
 
     jsonSuccessResponse(['message' => (string) __('formList_submit_success_text')]);
+} catch (ExternalServiceException $e) {
+    jsonExceptionResponse($e, (string) __('email_error_generic'), [
+        'endpoint' => 'email-submit',
+    ]);
 } catch (Throwable $e) {
     error_log('[email-submit] ' . $e->getMessage());
     jsonErrorResponse((string) __('email_error_generic'), 500);

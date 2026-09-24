@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 require_once __DIR__ . '/../includes/init.php';
 require_login();
@@ -8,6 +15,37 @@ require_once __DIR__ . '/../classes/Database.php';
 require_once __DIR__ . '/../classes/SystemConfigConstants.php';
 
 header('Content-Type: application/json; charset=UTF-8');
+
+function moduleCreateActorLabel(): ?string
+{
+    if (function_exists('audit_format_actor_label')) {
+        return audit_format_actor_label();
+    }
+
+    return $_SESSION['user']['f_nama'] ?? $_SESSION['f_nama'] ?? null;
+}
+
+function moduleCreateAuditChanges(?int $eventId, int $moduleId, array $changes): void
+{
+    if (!$eventId || !function_exists('audit_begin_change') || !function_exists('audit_change')) {
+        return;
+    }
+
+    $changeSetId = audit_begin_change($eventId, 'module', (string)$moduleId, 'Module creation', [
+        'source' => 'module-create',
+    ]);
+    if (!$changeSetId) {
+        return;
+    }
+
+    $fieldTypes = [
+        'f_order' => 'integer',
+        'groups_granted' => 'integer',
+    ];
+    foreach ($changes as $field => $newValue) {
+        audit_change($changeSetId, (string)$field, null, $newValue, $fieldTypes[$field] ?? 'string', false);
+    }
+}
 
 try {
     $pdo = Database::getInstance('mysql')->getConnection();
@@ -130,6 +168,41 @@ try {
     clearGroupUiCaches();
     GroupDataCache::clear('modul_list_');
     clearSidebarNavigationCaches();
+
+    try {
+        if (function_exists('audit_event')) {
+            $actorLabel = moduleCreateActorLabel();
+            $eventId = audit_event([
+                'event_type' => 'CREATE',
+                'severity' => 'INFO',
+                'outcome' => 'SUCCESS',
+                'target_type' => 'module',
+                'target_id' => (string)$newModuleId,
+                'target_label' => $nameMs,
+                'message' => function_exists('audit_format_message')
+                    ? audit_format_message('Module created', $actorLabel)
+                    : 'Module created',
+                'actor_label' => $actorLabel,
+                'meta' => [
+                    'module_id' => $newModuleId,
+                    'name_ms' => $nameMs,
+                    'name_en' => $nameEn,
+                    'icon' => $icon,
+                    'order' => $orderVal,
+                    'groups_granted' => count($groups),
+                ],
+            ]);
+            moduleCreateAuditChanges($eventId, $newModuleId, [
+                'f_modulName_ms' => $nameMs,
+                'f_modulName_en' => $nameEn !== '' ? $nameEn : null,
+                'f_icon' => $icon,
+                'f_order' => $orderVal,
+                'groups_granted' => count($groups),
+            ]);
+        }
+    } catch (Throwable $auditError) {
+        error_log('[module-create] Audit logging failed: ' . $auditError->getMessage());
+    }
 
     echo json_encode([
         'success' => true,

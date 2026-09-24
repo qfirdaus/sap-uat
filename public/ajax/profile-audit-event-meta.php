@@ -1,5 +1,12 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 @ini_set('display_errors', '0');
 error_reporting(E_ALL);
@@ -15,7 +22,7 @@ function auditEventMetaHumanizeField(string $field): string
 {
     $field = trim($field);
     if ($field === '') {
-        return 'Medan';
+        return (string)__('profile_audit_field_generic');
     }
 
     $field = preg_replace('/^f_/', '', $field) ?? $field;
@@ -76,9 +83,9 @@ function auditEventMetaSanitizeChangeSets(array $changeSets): array
 
         if ($fieldChanges === []) {
             $summaryRows[] = [
-                'field' => auditEventMetaHumanizeField((string)($changeSet['target_type'] ?? 'Perubahan')),
-                'before' => 'Direkodkan',
-                'after' => $reason !== '' ? $reason : 'Dikemaskini',
+                'field' => auditEventMetaHumanizeField((string)($changeSet['target_type'] ?? __('profile_audit_change_generic'))),
+                'before' => (string)__('profile_audit_value_recorded'),
+                'after' => $reason !== '' ? $reason : (string)__('profile_audit_value_updated'),
             ];
             continue;
         }
@@ -90,12 +97,12 @@ function auditEventMetaSanitizeChangeSets(array $changeSets): array
 
             $afterLabel = $hint !== ''
                 ? $hint
-                : ($reason !== '' ? $reason : ($isSensitive ? 'Perubahan direkodkan' : 'Dikemaskini'));
+                : ($reason !== '' ? $reason : ($isSensitive ? (string)__('profile_audit_change_recorded') : (string)__('profile_audit_value_updated')));
 
             $summaryRows[] = [
                 'field' => auditEventMetaHumanizeField($fieldName),
-                'before' => 'Direkodkan',
-                'after' => $isSensitive ? 'Disembunyikan' : $afterLabel,
+                'before' => (string)__('profile_audit_value_recorded'),
+                'after' => $isSensitive ? (string)__('profile_audit_value_hidden') : $afterLabel,
             ];
         }
     }
@@ -106,7 +113,7 @@ function auditEventMetaSanitizeChangeSets(array $changeSets): array
 $eventId = isset($_REQUEST['event_id']) ? (int)$_REQUEST['event_id'] : 0;
 if ($eventId <= 0) {
     http_response_code(400);
-    echo json_encode(['error' => 'invalid_event_id', 'message' => 'Invalid event id'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['error' => 'invalid_event_id', 'message' => (string)__('profile_audit_invalid_event_id')], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -144,7 +151,7 @@ try {
 
     if (!$event) {
         http_response_code(404);
-        echo json_encode(['error' => 'not_found', 'message' => 'Audit event not found'], JSON_UNESCAPED_UNICODE);
+        echo json_encode(['error' => 'not_found', 'message' => (string)__('profile_audit_event_not_found')], JSON_UNESCAPED_UNICODE);
         exit;
     }
 
@@ -213,6 +220,6 @@ try {
 } catch (Throwable $e) {
     error_log('[profile-audit-event-meta] Error: ' . $e->getMessage());
     http_response_code(500);
-    echo json_encode(['error' => 'server_error', 'message' => 'Server error'], JSON_UNESCAPED_UNICODE);
+    echo json_encode(['error' => 'server_error', 'message' => (string)__('profile_audit_server_error')], JSON_UNESCAPED_UNICODE);
     exit;
 }

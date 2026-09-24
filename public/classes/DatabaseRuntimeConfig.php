@@ -1,17 +1,32 @@
 <?php
-declare(strict_types=1);
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */declare(strict_types=1);
 
 require_once __DIR__ . '/SystemConfigConstants.php';
 require_once __DIR__ . '/Config.php';
 
 final class DatabaseRuntimeConfig
 {
-    public function __construct(private readonly ?Config $configModel = null)
+    public function __construct(
+        private readonly ?Config $configModel = null,
+        private readonly ?string $osFamilyOverride = null,
+    )
     {
     }
 
     public function getOsFamily(): string
     {
+        $override = strtolower(trim((string)$this->osFamilyOverride));
+        if (in_array($override, ['windows', 'linux'], true)) {
+            return $override;
+        }
+
         return PHP_OS_FAMILY === 'Windows' ? 'windows' : 'linux';
     }
 

@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */
 declare(strict_types=1);
 
 require_once __DIR__ . '/../classes/Database.php';
@@ -47,6 +55,9 @@ final class SystemTemplateController
         $this->lang = $_SESSION['lang'] ?? 'ms';
         $this->pdoMysql = Database::getInstance('mysql')->getConnection();
         $this->profile = $this->loadProfile();
+        if (!function_exists('is_user_super_admin') || !is_user_super_admin($this->profile, $this->pdoMysql)) {
+            throw new RuntimeException('Template generator access denied.');
+        }
         $this->applyUserTheme();
         $this->systemTemplateModel = new SystemTemplate($this->pdoMysql);
         $this->registryService = new TemplateRegistryService();
@@ -133,6 +144,11 @@ final class SystemTemplateController
         }
 
         $action = trim((string)($_POST['generator_action'] ?? 'preview'));
+        if (!in_array($action, ['preview', 'generate'], true)) {
+            $this->errorMessage = (string)__('pageTemplateGenerator_error_invalid_action');
+            $this->auditTemplateGenerationFailure($this->form, 'invalid_action');
+            return;
+        }
         $this->fieldErrors = $this->validateForm($this->form);
         if ($this->fieldErrors !== []) {
             $this->errorMessage = (string)__('pageTemplateGenerator_validation_required');
@@ -157,9 +173,11 @@ final class SystemTemplateController
             $this->generationResult = $this->creationService->create($this->form, [
                 'update_by' => (string)($this->profile['f_stafID'] ?? ($_SESSION['f_stafID'] ?? '')),
             ]);
+            $this->auditTemplateGeneration($this->form, $this->generationResult);
             $this->successMessage = (string)__('pageTemplateGenerator_success_generate');
             $this->flashSuccessAndRedirect();
         } catch (Throwable $e) {
+            $this->auditTemplateGenerationFailure($this->form, get_class($e));
             $this->errorMessage = $this->mapUserFacingError($e);
         }
     }
@@ -258,6 +276,73 @@ final class SystemTemplateController
 
     /**
      * @param array<string,string> $form
+     * @param array<string,mixed> $result
+     */
+    protected function auditTemplateGeneration(array $form, array $result): void
+    {
+        if (!function_exists('audit_event')) {
+            return;
+        }
+
+        try {
+            $templateId = (int)($result['template_id'] ?? 0);
+            $actorLabel = function_exists('audit_format_actor_label')
+                ? audit_format_actor_label()
+                : ($_SESSION['user']['f_nama'] ?? $_SESSION['f_nama'] ?? null);
+            $eventId = audit_event([
+                'event_type' => 'CREATE',
+                'severity' => 'INFO',
+                'outcome' => 'SUCCESS',
+                'target_type' => 'system_template',
+                'target_id' => $templateId > 0 ? (string)$templateId : (string)($result['page_slug'] ?? ''),
+                'target_label' => (string)($form['template_name'] ?? ''),
+                'message' => function_exists('audit_format_message')
+                    ? audit_format_message('System template generated', $actorLabel)
+                    : 'System template generated',
+                'actor_label' => $actorLabel,
+                'meta' => [
+                    'template_id' => $templateId,
+                    'template_key' => (string)($form['template_key'] ?? ''),
+                    'page_slug' => (string)($result['page_slug'] ?? ''),
+                    'controller_class' => (string)($result['controller_class'] ?? ''),
+                    'files_created' => $result['files_created'] ?? [],
+                ],
+            ]);
+
+            if (!$eventId || !function_exists('audit_begin_change') || !function_exists('audit_change')) {
+                return;
+            }
+
+            $changeSetId = audit_begin_change($eventId, 'system_template', $templateId > 0 ? (string)$templateId : (string)($result['page_slug'] ?? ''), 'System template generation', [
+                'source' => 'template-generator',
+            ]);
+            if (!$changeSetId) {
+                return;
+            }
+
+            $changes = [
+                'template_name' => (string)($form['template_name'] ?? ''),
+                'template_key' => (string)($form['template_key'] ?? ''),
+                'page_name' => (string)($form['page_name'] ?? ''),
+                'page_title_ms' => (string)($form['page_title_ms'] ?? ''),
+                'page_title_en' => (string)($form['page_title_en'] ?? ''),
+                'page_icon' => (string)($form['page_icon'] ?? ''),
+                'access_mode' => (string)($form['access_mode'] ?? ''),
+                'page_slug' => (string)($result['page_slug'] ?? ''),
+                'controller_class' => (string)($result['controller_class'] ?? ''),
+                'files_created' => json_encode($result['files_created'] ?? [], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            ];
+
+            foreach ($changes as $field => $value) {
+                audit_change($changeSetId, (string)$field, null, $value, $field === 'files_created' ? 'json' : 'string', false);
+            }
+        } catch (Throwable $auditError) {
+            error_log('[SystemTemplateController] Audit logging failed: ' . $auditError->getMessage());
+        }
+    }
+
+    /**
+     * @param array<string,string> $form
      * @return array<string,string>
      */
     protected function validateForm(array $form): array
@@ -286,6 +371,18 @@ final class SystemTemplateController
             $errors['access_mode'] = (string)__('pageTemplateGenerator_required_field');
         }
 
+        $limits = ['template_name' => 120, 'page_name' => 80, 'page_title_ms' => 160, 'page_title_en' => 160, 'page_icon' => 80];
+        foreach ($limits as $key => $limit) {
+            if (mb_strlen(trim((string)($form[$key] ?? ''))) > $limit) {
+                $errors[$key] = (string)__('pageTemplateGenerator_validation_too_long');
+            }
+        }
+
+        $pageIcon = trim((string)($form['page_icon'] ?? ''));
+        if ($pageIcon !== '' && !preg_match('/^ri-[a-z0-9-]+$/', $pageIcon)) {
+            $errors['page_icon'] = (string)__('pageTemplateGenerator_validation_icon');
+        }
+
         return $errors;
     }
 
@@ -293,15 +390,41 @@ final class SystemTemplateController
     {
         $message = trim($e->getMessage());
         $knownMessages = [
-            'Template record already exists for this page slug.',
-            'Template record already exists for this controller class.',
+            'Template record already exists for this page slug.' => 'pageTemplateGenerator_error_slug_exists',
+            'Template record already exists for this controller class.' => 'pageTemplateGenerator_error_controller_exists',
         ];
 
-        if (in_array($message, $knownMessages, true)) {
-            return $message;
+        if (isset($knownMessages[$message])) {
+            return (string)__($knownMessages[$message]);
         }
 
         error_log('[SystemTemplateController] create failed: ' . $e->getMessage());
         return (string)__('pageTemplateGenerator_error_create_failed');
+    }
+
+    /** @param array<string,string> $form */
+    protected function auditTemplateGenerationFailure(array $form, string $reason): void
+    {
+        if (!function_exists('audit_event')) {
+            return;
+        }
+        try {
+            audit_event([
+                'event_type' => 'CREATE',
+                'severity' => 'WARNING',
+                'outcome' => 'FAILURE',
+                'target_type' => 'system_template',
+                'target_id' => (string)($form['page_name'] ?? ''),
+                'target_label' => (string)($form['template_name'] ?? ''),
+                'message' => 'System template generation failed',
+                'meta' => [
+                    'template_key' => (string)($form['template_key'] ?? ''),
+                    'page_name' => (string)($form['page_name'] ?? ''),
+                    'reason_type' => $reason,
+                ],
+            ]);
+        } catch (Throwable $auditError) {
+            error_log('[SystemTemplateController] Failure audit logging failed: ' . $auditError->getMessage());
+        }
     }
 }

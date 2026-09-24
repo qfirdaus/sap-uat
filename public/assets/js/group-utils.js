@@ -34,6 +34,42 @@ const GroupUtils = {
   getCSRF() {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
   },
+
+  _loaderTokens: {},
+
+  showLoader(key, message) {
+    const loaderKey = String(key || 'group');
+    this._loaderTokens[loaderKey] = message || this.t('loading', 'Loading...');
+    return this._loaderTokens[loaderKey];
+  },
+
+  hideLoader(key) {
+    const loaderKey = String(key || 'group');
+    delete this._loaderTokens[loaderKey];
+  },
+
+  setButtonBusy(button, busy, label = '') {
+    if (!button) return;
+    if (busy) {
+      if (button.dataset.busy === '1') return;
+      button.dataset.busy = '1';
+      button.dataset.busyOriginalHtml = button.innerHTML;
+      button.dataset.busyOriginalDisabled = button.disabled ? '1' : '0';
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>'
+        + '<span>' + this.esc(label || this.t('saving', 'Saving...')) + '</span>';
+      return;
+    }
+
+    if (button.dataset.busy !== '1') return;
+    button.innerHTML = button.dataset.busyOriginalHtml || button.innerHTML;
+    button.disabled = button.dataset.busyOriginalDisabled === '1';
+    button.removeAttribute('aria-busy');
+    delete button.dataset.busy;
+    delete button.dataset.busyOriginalHtml;
+    delete button.dataset.busyOriginalDisabled;
+  },
   
   hasDataTable() {
     return !!(window.jQuery && jQuery.fn && jQuery.fn.DataTable);
@@ -62,8 +98,9 @@ const GroupUtils = {
   // Safe JSON fetch
   async fetchJSONSafe(url, opts) {
     const requestOpts = Object.assign({}, opts || {});
+    requestOpts.noLoader = requestOpts.noLoader !== false;
     requestOpts.headers = Object.assign(
-      { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+      { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest', 'X-No-Loader': '1' },
       (opts && opts.headers) || {}
     );
     requestOpts.credentials = requestOpts.credentials || 'same-origin';
@@ -74,7 +111,8 @@ const GroupUtils = {
       return JSON.parse(txt);
     } catch (e) {
       const snippet = txt.slice(0, 240).replace(/\s+/g, ' ').trim();
-      throw new Error(this.t('non_json_response', 'Server did not return JSON. Preview:') + ' ' + snippet);
+      console.error('[group-utils] Non-JSON response:', snippet);
+      throw new Error(this.t('non_json_response', 'Server did not return a valid response.'));
     }
   },
   
@@ -115,6 +153,16 @@ const GroupUtils = {
       const s = String(href).toLowerCase();
       return s.split('/').pop().split('?')[0].split('#')[0];
     }
+  },
+
+  fireAlert(options = {}) {
+    if (window.GroupSwal && typeof window.GroupSwal.fire === 'function') {
+      return window.GroupSwal.fire(options);
+    }
+    if (window.Swal && typeof window.Swal.fire === 'function') {
+      return window.Swal.fire(options);
+    }
+    return Promise.resolve(null);
   }
 };
 
@@ -133,9 +181,6 @@ document.addEventListener('show.bs.modal', function (e) {
 
 // Export untuk global access
 window.GroupUtils = GroupUtils;
-
-
-
 
 
 

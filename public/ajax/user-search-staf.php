@@ -1,5 +1,12 @@
 <?php
-// ajax/user-search-staf.php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ */// ajax/user-search-staf.php
 // Search staf from Sybase for Select2 dropdown
 declare(strict_types=1);
 
@@ -146,7 +153,7 @@ try {
     http_response_code(500);
     echo json_encode([
         'error' => true,
-        'message' => 'Ralat sistem semasa mencari staf.',
+        'message' => (string)__('userList_ajax_search_staff_error'),
         'results' => []
     ], JSON_UNESCAPED_UNICODE);
 }

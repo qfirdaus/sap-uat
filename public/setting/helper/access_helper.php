@@ -1,4 +1,12 @@
 <?php
+/**
+ * IQS FRAMEWORK CORE FILE
+ *
+ * READ ONLY for downstream project programmers.
+ * Do not modify this file directly in template or cloned projects.
+ * Custom changes must be implemented in project-specific files
+ * or approved extension points.
+ *///Update
 declare(strict_types=1);
 
 require_once __DIR__ . '/../constants/prestasi_constants.php';
@@ -9,6 +17,74 @@ if (!function_exists('prestasi_normalize_group_code')) {
         $groupKod = strtoupper(trim((string)$groupKod));
         if ($groupKod === '') return '';
         return preg_replace('/[^A-Z0-9]+/', '', $groupKod) ?? '';
+    }
+}
+
+if (!function_exists('prestasi_load_project_policy')) {
+    function prestasi_load_project_policy(string $policyName): void {
+        $policyName = preg_replace('/[^a-zA-Z0-9_-]+/', '', $policyName) ?? '';
+        if ($policyName === '') {
+            return;
+        }
+
+        $candidates = [
+            __DIR__ . '/../../project/policies/' . $policyName . '_policy.php',
+            __DIR__ . '/../../custom/policies/' . $policyName . '_policy.php',
+        ];
+
+        foreach ($candidates as $path) {
+            if (is_file($path)) {
+                require_once $path;
+            }
+        }
+    }
+}
+
+if (!function_exists('prestasi_project_userlist_policy_decision')) {
+    function prestasi_project_userlist_policy_decision(string $hook, bool $default, array $args = []): bool {
+        prestasi_load_project_policy('userlist');
+        if (!function_exists($hook)) {
+            return $default;
+        }
+
+        try {
+            return (bool)$hook(...$args);
+        } catch (Throwable $e) {
+            error_log('[prestasi_project_userlist_policy_decision] ' . $hook . ': ' . $e->getMessage());
+            return $default;
+        }
+    }
+}
+
+if (!function_exists('prestasi_is_userlist_page_path')) {
+    function prestasi_is_userlist_page_path(string $path): bool {
+        $path = prestasi_normalize_menu_path($path);
+        return $path === 'pages/senarai-pengguna.php' || basename($path) === 'senarai-pengguna.php';
+    }
+}
+
+if (!function_exists('prestasi_is_userlist_ajax_path')) {
+    function prestasi_is_userlist_ajax_path(string $path): bool {
+        $path = prestasi_normalize_menu_path($path);
+        $basename = basename($path);
+        return str_starts_with($path, 'ajax/')
+            && in_array($basename, [
+                'user-add-public.php',
+                'user-add-student.php',
+                'user-add.php',
+                'user-delete.php',
+                'user-extra-roles.php',
+                'user-list-rows.php',
+                'user-list-staf-options.php',
+                'user-list-student-options.php',
+                'user-search-pelajar.php',
+                'user-search-staf.php',
+                'user-set-group.php',
+                'user-student-detail.php',
+                'user-sync-student.php',
+                'user-sync-sybase.php',
+                'user-update-public.php',
+            ], true);
     }
 }
 
@@ -221,6 +297,39 @@ if (!function_exists('prestasi_public_page_allowlist')) {
     }
 }
 
+if (!function_exists('prestasi_is_ajax_like_request')) {
+    function prestasi_is_ajax_like_request(): bool {
+        if (function_exists('request_is_ajax_like')) {
+            return request_is_ajax_like();
+        }
+
+        $requestedWith = strtolower(trim((string)($_SERVER['HTTP_X_REQUESTED_WITH'] ?? '')));
+        if ($requestedWith === 'xmlhttprequest') {
+            return true;
+        }
+
+        $accept = strtolower(trim((string)($_SERVER['HTTP_ACCEPT'] ?? '')));
+        return $accept !== '' && (str_contains($accept, 'application/json') || str_contains($accept, 'text/json'));
+    }
+}
+
+if (!function_exists('prestasi_has_authenticated_session')) {
+    function prestasi_has_authenticated_session(): bool {
+        return !empty($_SESSION['f_stafID'])
+            || !empty($_SESSION['f_loginID'])
+            || !empty($_SESSION['user']);
+    }
+}
+
+if (!function_exists('prestasi_is_modal_partial_path')) {
+    function prestasi_is_modal_partial_path(string $currentPath): bool {
+        $currentPath = prestasi_normalize_menu_path($currentPath);
+        return $currentPath !== ''
+            && str_starts_with($currentPath, 'pages/modal/')
+            && str_ends_with($currentPath, '.php');
+    }
+}
+
 if (!function_exists('prestasi_super_admin_only_pages')) {
     function prestasi_super_admin_only_pages(): array {
         $list = defined('ACCESS_POLICY_SUPER_ADMIN_ONLY_PAGES') ? ACCESS_POLICY_SUPER_ADMIN_ONLY_PAGES : [];
@@ -287,6 +396,10 @@ if (!function_exists('prestasi_resolve_page_access_policy')) {
     function prestasi_resolve_page_access_policy(string $currentPath, ?PDO $pdo = null): string {
         if ($currentPath === '' || !str_starts_with($currentPath, 'pages/')) {
             return 'non_page';
+        }
+
+        if (prestasi_is_modal_partial_path($currentPath)) {
+            return 'modal_ajax_partial';
         }
 
         if (in_array($currentPath, prestasi_public_page_allowlist(), true)) {
@@ -470,12 +583,23 @@ if (!function_exists('prestasi_user_can_access_current_page')) {
         }
 
         $policy = prestasi_resolve_page_access_policy($currentPath, $pdo);
+        if ($policy === 'modal_ajax_partial') {
+            return prestasi_has_authenticated_session() && prestasi_is_ajax_like_request();
+        }
+
         if ($policy === 'public_logged_in') {
             return true;
         }
 
         $isSuperAdmin = $pdo instanceof PDO && is_user_super_admin($profile, $pdo);
         if ($policy === 'super_admin_only') {
+            if (prestasi_is_userlist_page_path($currentPath)) {
+                return prestasi_project_userlist_policy_decision(
+                    'project_userlist_can_access_page',
+                    $isSuperAdmin,
+                    [$profile, $pdo, $currentPath, $isSuperAdmin]
+                );
+            }
             return $isSuperAdmin;
         }
 
@@ -523,11 +647,29 @@ if (!function_exists('prestasi_user_can_access_current_request')) {
             $isSuperAdmin ? '1' : '0'
         ));
 
+        if ($policy === 'modal_ajax_partial') {
+            return prestasi_has_authenticated_session() && prestasi_is_ajax_like_request();
+        }
+
         if (in_array($policy, ['unknown', 'public_logged_in', 'authenticated_default', 'custom_guard'], true)) {
             return true;
         }
 
         if ($policy === 'super_admin_only') {
+            if (prestasi_is_userlist_page_path($currentPath)) {
+                return prestasi_project_userlist_policy_decision(
+                    'project_userlist_can_access_page',
+                    $isSuperAdmin,
+                    [$profile, $pdo, $currentPath, $isSuperAdmin]
+                );
+            }
+            if (prestasi_is_userlist_ajax_path($currentPath)) {
+                return prestasi_project_userlist_policy_decision(
+                    'project_userlist_can_access_ajax',
+                    $isSuperAdmin,
+                    [$profile, $pdo, $currentPath, $isSuperAdmin]
+                );
+            }
             return $isSuperAdmin;
         }
 
@@ -598,6 +740,88 @@ if (!function_exists('ensure_current_page_access')) {
         }
 
         prestasi_render_page_forbidden($message ?? (string)(__('manual_unauthorized_access') ?: 'Anda tidak dibenarkan mengakses halaman ini.'));
+    }
+}
+
+if (!function_exists('prestasi_user_can_access_page_path')) {
+    function prestasi_user_can_access_page_path(string $pagePath, array $profile = [], ?PDO $pdo = null): bool {
+        $pagePath = prestasi_normalize_menu_path($pagePath);
+        if ($pagePath === '') {
+            return false;
+        }
+
+        if (!str_starts_with($pagePath, 'pages/')) {
+            $pagePath = 'pages/' . basename($pagePath);
+        }
+
+        $policy = prestasi_resolve_page_access_policy($pagePath, $pdo);
+        if ($policy === 'modal_ajax_partial') {
+            return false;
+        }
+
+        if ($policy === 'public_logged_in' || $policy === 'custom_guard') {
+            return true;
+        }
+
+        $isSuperAdmin = $pdo instanceof PDO && is_user_super_admin($profile, $pdo);
+        if ($policy === 'super_admin_only') {
+            if (prestasi_is_userlist_page_path($pagePath)) {
+                return prestasi_project_userlist_policy_decision(
+                    'project_userlist_can_access_page',
+                    $isSuperAdmin,
+                    [$profile, $pdo, $pagePath, $isSuperAdmin]
+                );
+            }
+            return $isSuperAdmin;
+        }
+
+        if ($isSuperAdmin) {
+            return true;
+        }
+
+        $resolved = prestasi_resolve_active_group($profile, $pdo);
+        $groupId = (int)($resolved['id'] ?? 0);
+        if ($groupId <= 0 || !$pdo instanceof PDO) {
+            return false;
+        }
+
+        $allowedPaths = prestasi_load_allowed_page_paths($pdo, $groupId);
+        if (isset($allowedPaths[$pagePath])) {
+            return true;
+        }
+
+        $basename = basename($pagePath);
+        return $basename !== '' && isset($allowedPaths[$basename]);
+    }
+}
+
+if (!function_exists('require_page_access')) {
+    function require_page_access(string $pagePath, ?array $profile = null, ?PDO $pdo = null, ?string $message = null): void {
+        $profile = $profile ?? ($GLOBALS['profile'] ?? []);
+        $pdo = $pdo ?? ($GLOBALS['pdo_mysql'] ?? null);
+        $profile = is_array($profile) ? $profile : [];
+        $pdo = $pdo instanceof PDO ? $pdo : null;
+
+        if (prestasi_user_can_access_page_path($pagePath, $profile, $pdo)) {
+            return;
+        }
+
+        $defaultMessage = $message ?? (string)(__('manual_unauthorized_access') ?: 'Anda tidak dibenarkan mengakses halaman ini.');
+        if (prestasi_is_ajax_like_request()) {
+            while (ob_get_level() > 0) {
+                @ob_end_clean();
+            }
+            http_response_code(403);
+            header('Content-Type: application/json; charset=utf-8');
+            echo json_encode([
+                'success' => false,
+                'error' => true,
+                'message' => $defaultMessage,
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            exit;
+        }
+
+        prestasi_render_page_forbidden($defaultMessage);
     }
 }
 

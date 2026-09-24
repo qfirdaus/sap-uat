@@ -12,10 +12,13 @@ const MenuAccess = {
   cntEl: null,
   editModalEl: null,
   editErrorEl: null,
+  subgroupModalEl: null,
+  subgroupRows: [],
   
   // Translations
   T: null,
   restoreParentMenuModal: false,
+  restoreParentAfterSubgroupModal: false,
   pendingParentRestoreAfterSave: false,
   currentRows: [],
 
@@ -29,6 +32,31 @@ const MenuAccess = {
       document.body.style.removeProperty('padding-right');
       document.body.style.removeProperty('overflow');
       document.querySelectorAll('.modal-backdrop').forEach(el => el.remove());
+    } catch (e) { /* silent */ }
+  },
+
+  waitForModalShown(modalEl, modalInstance) {
+    return new Promise((resolve) => {
+      if (!modalEl || !modalInstance) {
+        resolve();
+        return;
+      }
+      if (modalEl.classList.contains('show')) {
+        requestAnimationFrame(() => resolve());
+        return;
+      }
+      const done = () => requestAnimationFrame(() => resolve());
+      modalEl.addEventListener('shown.bs.modal', done, { once: true });
+      modalInstance.show();
+    });
+  },
+
+  adjustMenuDataTable() {
+    try {
+      const dt = GroupState.getMenuDataTable();
+      if (dt && typeof dt.columns === 'function') {
+        dt.columns.adjust().draw(false);
+      }
     } catch (e) { /* silent */ }
   },
 
@@ -59,6 +87,7 @@ const MenuAccess = {
     this.cntEl = document.getElementById('menuContent');
     this.editModalEl = document.getElementById('menuEditModal');
     this.editErrorEl = document.getElementById('menuEditError');
+    this.subgroupModalEl = document.getElementById('menuSubgroupModal');
     this.editModalEl?.addEventListener('hidden.bs.modal', () => {
       this.cleanupModalArtifacts();
       if (this.pendingParentRestoreAfterSave) {
@@ -71,6 +100,16 @@ const MenuAccess = {
         }
       }
       this.restoreParentMenuModal = false;
+    });
+    this.subgroupModalEl?.addEventListener('hidden.bs.modal', () => {
+      this.cleanupModalArtifacts();
+      if (this.restoreParentAfterSubgroupModal && this.modalEl) {
+        const parentModal = GroupUtils.getModal(this.modalEl);
+        if (parentModal) {
+          parentModal.show();
+        }
+      }
+      this.restoreParentAfterSubgroupModal = false;
     });
 
     const colorPicker = document.getElementById('gc_color_picker');
@@ -121,9 +160,36 @@ const MenuAccess = {
     document.getElementById('menuEditSaveBtn')?.addEventListener('click', () => {
       this.handleSave();
     });
+    document.getElementById('em_modulID')?.addEventListener('change', (e) => {
+      this.populateSubgroups(e.target.value, 0);
+    });
+    document.getElementById('menuSubgroupSaveBtn')?.addEventListener('click', () => {
+      this.saveSubgroup();
+    });
+    document.getElementById('menuSubgroupResetBtn')?.addEventListener('click', () => {
+      this.resetSubgroupForm();
+    });
+    document.getElementById('sg_modulID')?.addEventListener('change', () => {
+      this.loadSubgroupsForManager();
+    });
+    document.getElementById('sg_iconPicker')?.addEventListener('click', (e) => {
+      const btn = e.target.closest('.subgroup-icon-option[data-icon]');
+      if (!btn) return;
+      this.setSubgroupIcon(btn.getAttribute('data-icon') || 'ri-folder-2-line');
+    });
+    document.querySelector('#menuSubgroupTable tbody')?.addEventListener('click', (e) => {
+      const tr = e.target.closest('tr[data-index]');
+      if (!tr) return;
+      const row = this.subgroupRows[parseInt(tr.getAttribute('data-index') || '-1', 10)];
+      if (!row) return;
+      if (e.target.closest('.sg-edit')) this.resetSubgroupForm(row);
+      if (e.target.closest('.sg-delete-blocked')) this.showSubgroupInUseAlert(row);
+      if (e.target.closest('.sg-delete')) this.deleteSubgroup(row);
+    });
     // Group create modal save handler (global page)
     document.getElementById('groupCreateSaveBtn')?.addEventListener('click', async (e) => {
       e.preventDefault();
+      const actionButton = e.currentTarget;
       const errEl = document.getElementById('groupCreateError');
       if (errEl) errEl.classList.add('d-none');
       const groupID = parseInt(document.getElementById('gc_groupID')?.value || '0', 10) || 0;
@@ -146,10 +212,13 @@ const MenuAccess = {
 
       // Export to global so page scripts can call populateCreateModal()
       try { window.MenuAccess = MenuAccess; } catch (e) { /* ignore */ }
+      GroupUtils.showLoader('menuAction', this.T.loading || this.T.btn_save || 'Loading...');
+      GroupUtils.setButtonBusy(actionButton, true, this.T.saving || 'Saving...');
       try {
         const resp = await fetch(GroupUtils.apiUrl('group-create.php'), {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': GroupUtils.getCSRF() },
+          noLoader: true,
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': GroupUtils.getCSRF(), 'X-No-Loader': '1' },
           body: JSON.stringify(payload)
         });
         const j = await resp.json();
@@ -169,31 +238,25 @@ const MenuAccess = {
           menuAccess: payload.menuAccess
         });
 
-        await this.refreshGroupTableRow(savedGroup.groupID || savedGroup.id || payload.groupID, savedGroup);
         modal.hide();
         this.resetGroupCreateForm();
+        const successAlert = GroupUtils.fireAlert({
+          icon: 'success',
+          title: this.T.done || 'Berjaya',
+          text: groupID > 0
+            ? (this.T.group_update_success || 'Kumpulan berjaya dikemaskini.')
+            : (this.T.group_create_success || 'Kumpulan berjaya ditambah.'),
+          confirmButtonText: this.T.btn_ok || 'OK'
+        });
+        await this.refreshGroupTableRow(savedGroup.groupID || savedGroup.id || payload.groupID, savedGroup);
         await this.syncSidebarForGroup(savedGroup.groupID || savedGroup.id || 0);
-
-        if (window.Swal && typeof Swal.fire === 'function') {
-          await (window.GroupSwal ? GroupSwal.fire({
-            icon: 'success',
-            title: this.T.done || 'Berjaya',
-            text: groupID > 0
-              ? (this.T.group_update_success || 'Kumpulan berjaya dikemaskini.')
-              : (this.T.group_create_success || 'Kumpulan berjaya ditambah.'),
-            confirmButtonText: this.T.btn_ok || 'OK'
-          }) : Swal.fire({
-            icon: 'success',
-            title: this.T.done || 'Berjaya',
-            text: groupID > 0
-              ? (this.T.group_update_success || 'Kumpulan berjaya dikemaskini.')
-              : (this.T.group_create_success || 'Kumpulan berjaya ditambah.'),
-            confirmButtonText: this.T.btn_ok || 'OK'
-          }));
-        }
+        await successAlert;
 
       } catch (err) {
         if (errEl) { errEl.textContent = err.message || this.T.error_network || 'Ralat rangkaian'; errEl.classList.remove('d-none'); }
+      } finally {
+        GroupUtils.setButtonBusy(actionButton, false);
+        GroupUtils.hideLoader('menuAction');
       }
     });
 
@@ -202,6 +265,8 @@ const MenuAccess = {
       const btn = e.target.closest('.btn-edit-group-meta');
       if (!btn) return;
       e.preventDefault();
+
+      GroupUtils.setButtonBusy(document.getElementById('groupCreateSaveBtn'), false);
 
       const modalEl = document.getElementById('groupCreateModal');
       const modal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
@@ -232,6 +297,8 @@ const MenuAccess = {
       if (document.getElementById('gc_color')) document.getElementById('gc_color').value = color;
       if (typeof this.syncGroupPreview === 'function') this.syncGroupPreview();
 
+      modal.show();
+
       try {
         if (window.MenuAccess && typeof window.MenuAccess.populateCreateModal === 'function') {
           await window.MenuAccess.populateCreateModal();
@@ -247,7 +314,6 @@ const MenuAccess = {
           await this.populateMenusForModules(menuIDs);
         }
       } catch (_) {}
-      modal.show();
     });
 
     // Delete group handler
@@ -260,71 +326,57 @@ const MenuAccess = {
       const gnam = btn.getAttribute('data-group-nama') || this.T.btn_group_label || 'Kumpulan';
       if (gid <= 0) return;
 
-      const ask = await (window.GroupSwal ? GroupSwal.fire({
+      const ask = await GroupUtils.fireAlert({
         icon: 'warning',
         title: this.T.confirm_title || 'Pengesahan',
         text: (this.T.confirm_delete_group_text || 'Padam kumpulan "{name}"?').replace('{name}', gnam),
         showCancelButton: true,
         confirmButtonText: this.T.confirm_yes_delete || 'Ya, Padam',
         cancelButtonText: this.T.confirm_cancel || 'Batal',
-      }) : Swal.fire({
-        icon: 'warning',
-        title: this.T.confirm_title || 'Pengesahan',
-        text: (this.T.confirm_delete_group_text || 'Padam kumpulan "{name}"?').replace('{name}', gnam),
-        showCancelButton: true,
-        confirmButtonText: this.T.confirm_yes_delete || 'Ya, Padam',
-        cancelButtonText: this.T.confirm_cancel || 'Batal',
-      }));
+      });
       if (!ask.isConfirmed) return;
 
+      GroupUtils.showLoader('menuAction', this.T.loading || this.T.confirm_yes_delete || 'Loading...');
       try {
         const resp = await fetch(GroupUtils.apiUrl('group-delete.php'), {
           method: 'POST',
+          noLoader: true,
           headers: {
             'Content-Type': 'application/json',
             'X-CSRF-Token': GroupUtils.getCSRF(),
-            'Accept': 'application/json'
+            'Accept': 'application/json',
+            'X-No-Loader': '1'
           },
           body: JSON.stringify({ groupID: gid })
         });
         const j = await resp.json();
         if (!resp.ok || !j || j.error) {
           const msg = (j && j.message) ? j.message : (this.T.delete_group_fail || 'Gagal memadam kumpulan.');
-          await (window.GroupSwal ? GroupSwal.fire({
+          await GroupUtils.fireAlert({
             icon: 'error',
             title: this.T.not_allowed_title || 'Tidak Dibenarkan',
             text: msg,
-          }) : Swal.fire({
-            icon: 'error',
-            title: this.T.not_allowed_title || 'Tidak Dibenarkan',
-            text: msg,
-          }));
+          });
           return;
         }
 
         this.removeGroupTableRow(gid);
+        const successAlert = GroupUtils.fireAlert({
+          icon: 'success',
+          title: this.T.done || 'Berjaya',
+          text: this.T.delete_group_success || 'Kumpulan berjaya dipadam.',
+          confirmButtonText: this.T.btn_ok || 'OK'
+        });
         await this.syncSidebarForGroup(gid);
-        await (window.GroupSwal ? GroupSwal.fire({
-          icon: 'success',
-          title: this.T.done || 'Berjaya',
-          text: this.T.delete_group_success || 'Kumpulan berjaya dipadam.',
-          confirmButtonText: this.T.btn_ok || 'OK'
-        }) : Swal.fire({
-          icon: 'success',
-          title: this.T.done || 'Berjaya',
-          text: this.T.delete_group_success || 'Kumpulan berjaya dipadam.',
-          confirmButtonText: this.T.btn_ok || 'OK'
-        }));
+        await successAlert;
       } catch (err) {
-        await (window.GroupSwal ? GroupSwal.fire({
+        await GroupUtils.fireAlert({
           icon: 'error',
           title: this.T.not_allowed_title || 'Tidak Dibenarkan',
           text: err && err.message ? err.message : (this.T.delete_group_network_fail || 'Ralat rangkaian semasa memadam kumpulan.'),
-        }) : Swal.fire({
-          icon: 'error',
-          title: this.T.not_allowed_title || 'Tidak Dibenarkan',
-          text: err && err.message ? err.message : (this.T.delete_group_network_fail || 'Ralat rangkaian semasa memadam kumpulan.'),
-        }));
+        });
+      } finally {
+        GroupUtils.hideLoader('menuAction');
       }
     });
     // Ensure modal UI matches current mode when shown
@@ -355,6 +407,35 @@ const MenuAccess = {
     return !!window.GroupPageRuntime?.canManageGroups;
   },
 
+  findGroupTableRow(groupId) {
+    const table = this.getGroupTableApi();
+    const targetGroupId = parseInt(groupId || '0', 10) || 0;
+    if (!table || targetGroupId <= 0) return null;
+
+    let matchedRow = null;
+    table.rows().every(function () {
+      const node = this.node();
+      let rowGroupId = parseInt(node?.getAttribute?.('data-group-id') || '0', 10) || 0;
+
+      if (rowGroupId <= 0) {
+        const data = this.data();
+        if (Array.isArray(data)) {
+          const actionHtml = String((data[5] || '') + (data[6] || '') + (data[7] || ''));
+          const match = actionHtml.match(/data-group-id=["']?(\d+)/);
+          rowGroupId = match ? (parseInt(match[1], 10) || 0) : 0;
+        }
+      }
+
+      if (rowGroupId === targetGroupId) {
+        matchedRow = this;
+        return false;
+      }
+      return true;
+    });
+
+    return matchedRow;
+  },
+
   normalizeGroupRecord(group = {}) {
     const modulAccess = Array.isArray(group.modulAccess)
       ? group.modulAccess
@@ -377,18 +458,21 @@ const MenuAccess = {
       color: String(group.color ?? group.f_color ?? '').trim(),
       priority: String(group.priority ?? group.f_priority ?? '0').trim() || '0',
       mod: String(group.mod ?? group.f_mod ?? '0').trim() || '0',
+      userCount: parseInt(group.userCount ?? group.user_count ?? '0', 10) || 0,
+      canDelete: typeof (group.canDelete ?? group.can_delete) === 'boolean'
+        ? Boolean(group.canDelete ?? group.can_delete)
+        : null,
       modulAccess,
       menuAccess
     };
   },
 
   extractGroupRecordFromRow(groupId) {
-    const table = this.getGroupTableApi();
     const targetGroupId = parseInt(groupId || '0', 10) || 0;
-    if (!table || targetGroupId <= 0) return null;
+    if (targetGroupId <= 0) return null;
 
-    const row = table.row('tr[data-group-id="' + targetGroupId + '"]');
-    if (!row.any()) return null;
+    const row = this.findGroupTableRow(targetGroupId);
+    if (!row) return null;
 
     const node = row.node();
     const data = row.data();
@@ -413,7 +497,8 @@ const MenuAccess = {
       categoryUser: editBtn?.getAttribute('data-group-category') || categoryChip?.getAttribute('data-category') || getText(3) || 'STAF',
       color: editBtn?.getAttribute('data-group-color') || colorBar?.getAttribute('title') || '',
       priority: editBtn?.getAttribute('data-group-priority') || '0',
-      mod: editBtn?.getAttribute('data-group-mod') || '0'
+      mod: editBtn?.getAttribute('data-group-mod') || '0',
+      canDelete: !!node?.querySelector?.('.btn-delete-group')
     };
   },
 
@@ -428,6 +513,10 @@ const MenuAccess = {
       color: group.color ?? group.f_color ?? existing?.color,
       priority: group.priority ?? group.f_priority ?? existing?.priority,
       mod: group.mod ?? group.f_mod ?? existing?.mod,
+      userCount: group.userCount ?? group.user_count ?? existing?.userCount,
+      canDelete: typeof (group.canDelete ?? group.can_delete) === 'boolean'
+        ? Boolean(group.canDelete ?? group.can_delete)
+        : existing?.canDelete,
       modulAccess: group.modulAccess ?? group.f_modulAccess ?? record.modulAccess,
       menuAccess: group.menuAccess ?? group.f_menuAccess ?? record.menuAccess
     });
@@ -436,13 +525,17 @@ const MenuAccess = {
   buildGroupRowData(group = {}, index = 1) {
     const record = this.normalizeGroupRecord(group);
     const hasAccess = record.modulAccess.length > 0 || record.menuAccess.length > 0;
-    const canDeleteGroup = !hasAccess;
+    const canOpenModuleAccess = record.id > 0;
+    const hasCompleteIdentity = record.id > 0 && (record.kod !== '' || record.nama !== '');
+    const canDeleteGroup = typeof record.canDelete === 'boolean'
+      ? record.canDelete
+      : (hasCompleteIdentity && !hasAccess);
     const barColor = record.color || '#94a3b8';
     const esc = (value) => GroupUtils.esc(String(value ?? ''));
     const escAttr = (value) => this.escapeAttr(value);
     const manageButtons = this.canManageGroups()
       ? [
-          '<button type="button" class="btn btn-sm btn-outline-warning icon-btn btn-edit-group-meta ms-1" ' +
+          '<button type="button" class="btn btn-sm btn-outline-warning icon-btn btn-edit-group-meta" ' +
             'data-group-id="' + escAttr(record.id) + '" ' +
             'data-group-kod="' + escAttr(record.kod) + '" ' +
             'data-group-nama="' + escAttr(record.nama) + '" ' +
@@ -457,7 +550,7 @@ const MenuAccess = {
 
     if (this.canManageGroups() && canDeleteGroup) {
       manageButtons.push(
-        '<button type="button" class="btn btn-sm btn-outline-danger icon-btn btn-delete-group ms-1" ' +
+        '<button type="button" class="btn btn-sm btn-outline-danger icon-btn btn-delete-group" ' +
           'data-group-id="' + escAttr(record.id) + '" ' +
           'data-group-kod="' + escAttr(record.kod) + '" ' +
           'data-group-nama="' + escAttr(record.nama) + '" ' +
@@ -474,14 +567,14 @@ const MenuAccess = {
         esc(record.categoryUser) +
       '</span>',
       '<div class="group-color-cell"><span class="group-color-bar" style="background-color: ' + escAttr(barColor) + ';" title="' + escAttr(barColor) + '"></span></div>',
-      '<button type="button" class="btn btn-sm btn-outline-secondary icon-btn view-group-perms" ' +
+      '<div class="group-access-actions d-inline-flex align-items-center gap-2"><button type="button" class="btn btn-sm btn-outline-secondary icon-btn view-group-perms" ' +
         'data-group-id="' + escAttr(record.id) + '" ' +
         'data-group-kod="' + escAttr(record.kod) + '" ' +
         'data-group-nama="' + escAttr(record.nama) + '" ' +
         'title="' + escAttr(this.T.userGroup_col_group_access || 'Akses kumpulan') + '">' +
         '<i class="ri-user-settings-line"></i></button>' +
-        manageButtons.join(''),
-      hasAccess
+        manageButtons.join('') + '</div>',
+      canOpenModuleAccess
         ? '<button type="button" class="btn btn-sm btn-outline-primary icon-btn view-access" ' +
             'data-group-id="' + escAttr(record.id) + '" ' +
             'data-group-kod="' + escAttr(record.kod) + '" ' +
@@ -509,20 +602,24 @@ const MenuAccess = {
       }
     });
     table.draw(false);
+    if (typeof table.columns === 'function') {
+      table.columns.adjust();
+    }
   },
 
   upsertGroupTableRow(group = {}) {
     const table = this.getGroupTableApi();
     const record = this.normalizeGroupRecord(this.mergeGroupRecord(group));
     if (!table || record.id <= 0) return false;
+    const hasCompleteIdentity = record.kod !== '' || record.nama !== '';
 
-    const selector = 'tr[data-group-id="' + record.id + '"]';
-    const existingRow = table.row(selector);
-    if (existingRow.any()) {
+    const existingRow = this.findGroupTableRow(record.id);
+    if (existingRow) {
       existingRow.data(this.buildGroupRowData(record));
       const node = existingRow.node();
       if (node) node.setAttribute('data-group-id', String(record.id));
     } else {
+      if (!hasCompleteIdentity) return false;
       const node = table.row.add(this.buildGroupRowData(record)).draw(false).node();
       if (node) node.setAttribute('data-group-id', String(record.id));
     }
@@ -554,7 +651,17 @@ const MenuAccess = {
     } catch (err) {
       console.warn('Group row refresh failed, using local fallback:', err);
     }
-    return this.upsertGroupTableRow(Object.assign({}, fallbackGroup, { groupID: targetGroupId }));
+
+    const existing = this.extractGroupRecordFromRow(targetGroupId) || {};
+    const mergedFallback = Object.assign({}, existing, fallbackGroup, { groupID: targetGroupId });
+    const hasIdentity = String(mergedFallback.groupKod || mergedFallback.kod || '').trim() !== ''
+      || String(mergedFallback.groupName || mergedFallback.nama || '').trim() !== '';
+
+    if (!hasIdentity) {
+      return false;
+    }
+
+    return this.upsertGroupTableRow(mergedFallback);
   },
 
   async refreshVisibleGroupTableRows() {
@@ -573,11 +680,10 @@ const MenuAccess = {
   },
 
   removeGroupTableRow(groupId) {
-    const table = this.getGroupTableApi();
     const targetGroupId = parseInt(groupId || '0', 10) || 0;
-    if (!table || targetGroupId <= 0) return false;
-    const row = table.row('tr[data-group-id="' + targetGroupId + '"]');
-    if (!row.any()) return false;
+    if (targetGroupId <= 0) return false;
+    const row = this.findGroupTableRow(targetGroupId);
+    if (!row) return false;
     row.remove().draw(false);
     this.reindexGroupTable();
     return true;
@@ -650,6 +756,7 @@ const MenuAccess = {
   },
   
   showLoading() {
+    GroupUtils.showLoader('menuAccess', this.T.loading || this.T.loading_menu || 'Loading...');
     this.loadEl?.classList.remove('d-none');
     this.errEl?.classList.add('d-none');
     this.cntEl?.classList.add('d-none');
@@ -657,6 +764,8 @@ const MenuAccess = {
   },
   
   showError(msg) {
+    GroupUtils.hideLoader('menuAccess');
+    GroupUtils.hideLoader('menuAction');
     this.loadEl?.classList.add('d-none');
     if (this.errEl) {
       this.errEl.textContent = msg || this.T.error_unknown;
@@ -665,6 +774,7 @@ const MenuAccess = {
   },
   
   showContent(html) {
+    GroupUtils.hideLoader('menuAccess');
     this.loadEl?.classList.add('d-none');
     this.errEl?.classList.add('d-none');
     if (this.cntEl) {
@@ -708,6 +818,8 @@ const MenuAccess = {
       modulID,
       name: String(me.nama || me.menuName || me.kod || '-'),
       path: String(me.path || me.f_path || ''),
+      subgroupID: parseInt(me.subgroupID ?? me.f_subgroupID ?? 0, 10) || 0,
+      subgroupName: String(me.subgroupName || me.subgroup_name || ''),
       domain: String(me.domain || me.f_domain || 'SHARED'),
       showStaffOnly: parseInt(me.show_staff_only ?? me.f_show_staff_only ?? 1, 10) === 1 ? 1 : 0,
       flag: __asOn(rawFlag) ? 1 : 0
@@ -796,13 +908,16 @@ const MenuAccess = {
       throw new Error((j && j.message) || this.T.error_save || 'Gagal menyimpan akses menu kumpulan.');
     }
 
-    await this.refreshGroupTableRow(groupID, {
+    const savedGroup = Object.assign({}, j.group || {}, {
       groupID,
-      groupKod: GroupState.getLastMenuBtn()?.getAttribute('data-group-kod') || '',
-      groupName: GroupState.getLastMenuBtn()?.getAttribute('data-group-nama') || '',
-      modulAccess: GroupState.getModulIDs(),
-      menuAccess: GroupState.getMenuIDs(),
+      groupKod: j.group?.kod || GroupState.getLastMenuBtn()?.getAttribute('data-group-kod') || '',
+      groupName: j.group?.nama || GroupState.getLastMenuBtn()?.getAttribute('data-group-nama') || '',
+      modulAccess: j.group?.modulAccess ?? GroupState.getModulIDs(),
+      menuAccess: j.group?.menuAccess ?? GroupState.getMenuIDs(),
     });
+    if (!this.upsertGroupTableRow(savedGroup)) {
+      await this.refreshGroupTableRow(groupID, savedGroup);
+    }
     await this.syncSidebarForGroup(groupID);
 
     return j;
@@ -943,14 +1058,24 @@ const MenuAccess = {
         : 'bg-danger-subtle text-danger-emphasis border-danger-subtle';
       return '<span class="badge rounded-pill border ' + cls + '">' + label + '</span>';
     };
+    const subgroupBadge = (name) => {
+      const safeName = String(name || '').trim();
+      if (!safeName) return '<span class="text-muted small">-</span>';
+      return '<span class="badge rounded-pill border bg-secondary-subtle text-secondary-emphasis border-secondary-subtle"><i class="ri-folder-2-line me-1"></i>' + GroupUtils.esc(safeName) + '</span>';
+    };
     const html =
+      '<div class="d-flex justify-content-end gap-2 mb-3">' +
+      '<button type="button" class="btn btn-sm btn-outline-primary" id="menuSubgroupManageBtn"><i class="ri-folder-settings-line me-1"></i>' + GroupUtils.esc(this.T.subgroup_manage || 'Subgroup') + '</button>' +
+      '<button type="button" class="btn btn-sm btn-primary" id="menuAddInsideBtn"><i class="ri-add-line me-1"></i>' + GroupUtils.esc(this.T.btn_add_menu || this.T.btn_menu_label || 'Menu') + '</button>' +
+      '</div>' +
       '<table class="table table-striped table-bordered align-middle w-100" id="menuDT">' +
       '<thead class="table-light"><tr>' +
-      '<th style="width:20%" class="text-start">' + GroupUtils.esc(this.T.field_modul || '') + '</th>' +
-      '<th style="width:20%" class="text-start">' + GroupUtils.esc(this.T.col_menu || '') + '</th>' +
-      '<th style="width:30%" class="text-start">' + GroupUtils.esc(this.T.col_visibility || '') + '</th>' +
-      '<th class="text-center col-status" style="width:15%">' + GroupUtils.esc(this.T.col_status || '') + '</th>' +
-      '<th class="text-center col-actions" style="width:15%">' + GroupUtils.esc(this.T.col_actions || '') + '</th>' +
+      '<th style="width:17%" class="text-start">' + GroupUtils.esc(this.T.field_modul || '') + '</th>' +
+      '<th style="width:24%" class="text-start">' + GroupUtils.esc(this.T.col_menu || '') + '</th>' +
+      '<th style="width:15%" class="text-start">' + GroupUtils.esc(this.T.field_subgroup || this.T.subgroup_manage || 'Subgroup') + '</th>' +
+      '<th style="width:23%" class="text-start">' + GroupUtils.esc(this.T.col_visibility || '') + '</th>' +
+      '<th class="text-center col-status" style="width:12%">' + GroupUtils.esc(this.T.col_status || '') + '</th>' +
+      '<th class="text-center col-actions" style="width:9%">' + GroupUtils.esc(this.T.col_actions || '') + '</th>' +
       '</tr></thead><tbody></tbody>' +
       '</table>';
 
@@ -974,20 +1099,23 @@ const MenuAccess = {
           '<tr data-modul-id="' + GroupUtils.esc(r.modulID) + '" data-menu-id="' + GroupUtils.esc(r.menuID) + '">' +
           '<td class="' + modulCellClass + ' text-start">' + modulCellHtml + '</td>' +
           '<td class="text-start"><div class="fw-semibold d-inline-flex align-items-start">' + GroupUtils.esc(r.menuName) + pathTooltip + '</div></td>' +
+          '<td class="text-start">' + subgroupBadge(r.subgroupName) + '</td>' +
           '<td class="text-start"><div class="d-flex flex-wrap gap-1">' +
               domainBadge(r.domain) +
               staffOnlyBadge(r.showStaffOnly) +
             '</div>' +
           '</td>' +
-          '<td class="text-center col-status">' +
+          '<td class="text-center col-status"><div class="menu-status-toggle">' +
           '<input type="radio" class="btn-check menu-flag" name="flag-' + GroupUtils.esc(r.menuID) + '" id="' + onId + '" value="1" ' + (isOn ? 'checked' : '') + '>' +
-          '<label class="btn btn-outline-success btn-sm me-1" for="' + onId + '">' + GroupUtils.esc(this.T.status_on || 'ON') + '</label>' +
+          '<label class="btn btn-outline-success btn-sm" for="' + onId + '">' + GroupUtils.esc(this.T.status_on || 'ON') + '</label>' +
           '<input type="radio" class="btn-check menu-flag" name="flag-' + GroupUtils.esc(r.menuID) + '" id="' + offId + '" value="0" ' + (!isOn ? 'checked' : '') + '>' +
           '<label class="btn btn-outline-secondary btn-sm" for="' + offId + '">' + GroupUtils.esc(this.T.status_off || 'OFF') + '</label>' +
+          '</div>' +
           '</td>' +
-          '<td class="text-center col-actions">' +
+          '<td class="text-center col-actions"><div class="menu-action-group">' +
           '<button class="btn btn-sm btn-outline-secondary icon-btn btn-edit-menu" title="' + GroupUtils.esc(this.T.edit || 'Edit') + '" aria-label="' + GroupUtils.esc(this.T.edit || 'Edit') + '"><i class="ri-pencil-line"></i></button> ' +
           '<button class="btn btn-sm btn-outline-danger icon-btn btn-del-menu" title="' + GroupUtils.esc(this.T.delete || 'Padam') + '" aria-label="' + GroupUtils.esc(this.T.delete || 'Padam') + '"><i class="ri-delete-bin-line"></i></button>' +
+          '</div>' +
           '</td>' +
           '</tr>';
       }).join('');
@@ -1006,12 +1134,14 @@ const MenuAccess = {
         pageLength: 10,
         lengthChange: false,
         ordering: false,
+        autoWidth: false,
         columnDefs: [
           { targets: 0, className: 'text-start align-top' },
           { targets: 1, className: 'text-start align-top' },
-          { targets: 2, orderable: false, searchable: false, className: 'text-start align-top' },
-          { targets: 3, orderable: false, searchable: false, className: 'text-center' },
-          { targets: 4, orderable: false, searchable: false, className: 'text-center' }
+          { targets: 2, className: 'text-start align-top' },
+          { targets: 3, orderable: false, searchable: false, className: 'text-start align-top' },
+          { targets: 4, orderable: false, searchable: false, className: 'text-center align-top' },
+          { targets: 5, orderable: false, searchable: false, className: 'text-center align-top' }
         ],
         dom: 'rt' + '<"dt-bottom-row mt-2 d-flex justify-content-between align-items-center"<"dt-info-left"i><"dt-paging-right d-flex justify-content-end"p>>',
         language: {
@@ -1019,6 +1149,10 @@ const MenuAccess = {
         }
       });
       GroupState.setMenuDataTable(table);
+      requestAnimationFrame(() => this.adjustMenuDataTable());
+      jQuery(this.modalEl)
+        .off('shown.bs.modal.menuTableAdjust')
+        .on('shown.bs.modal.menuTableAdjust', () => this.adjustMenuDataTable());
     }
 
     try {
@@ -1034,6 +1168,9 @@ const MenuAccess = {
         } catch (_) { /* ignore */ }
       });
     } catch (_) { /* ignore */ }
+
+    this.cntEl.querySelector('#menuAddInsideBtn')?.addEventListener('click', () => this.handleAddMenu());
+    this.cntEl.querySelector('#menuSubgroupManageBtn')?.addEventListener('click', () => this.openSubgroupManager());
 
     // Event handlers
     jQuery('#menuDT').off('click', '.btn-edit-menu').on('click', '.btn-edit-menu', (e) => {
@@ -1100,13 +1237,15 @@ const MenuAccess = {
             menuName: String(m.nama || m.menuName || m.kod || '-'),
             path: String(m.path || m.f_path || ''),
             domain: String(m.domain || m.f_domain || 'SHARED'),
+            subgroupID: parseInt(m.subgroupID ?? m.f_subgroupID ?? 0, 10) || 0,
+            subgroupName: String(m.subgroupName || m.subgroup_name || ''),
             showStaffOnly: parseInt(m.showStaffOnly ?? m.show_staff_only ?? m.f_show_staff_only ?? 1, 10) === 1 ? 1 : 0,
             flag: enabledForGroup ? 1 : 0
           });
         });
       });
 
-      rows.sort((a, b) => (a.modulID - b.modulID) || String(a.menuName).localeCompare(String(b.menuName)));
+      rows.sort((a, b) => (a.modulID - b.modulID) || ((a.subgroupID || 0) - (b.subgroupID || 0)) || String(a.menuName).localeCompare(String(b.menuName)));
       this.buildMenuTable(rows);
     } catch (e) {
       this.showError(e.message || this.T.error_network);
@@ -1134,17 +1273,12 @@ const MenuAccess = {
 
       if (!resolvedGroupID) {
         if (window.Swal && typeof Swal.fire === 'function') {
-          (window.GroupSwal ? GroupSwal.fire({
+          GroupUtils.fireAlert({
             icon: 'warning',
             title: this.T.info_title || 'Makluman',
             text: this.T.info_select_group_first || 'Sila pilih kumpulan dahulu melalui butang Akses Menu.',
             confirmButtonText: this.T.btn_ok || 'OK'
-          }) : Swal.fire({
-            icon: 'warning',
-            title: this.T.info_title || 'Makluman',
-            text: this.T.info_select_group_first || 'Sila pilih kumpulan dahulu melalui butang Akses Menu.',
-            confirmButtonText: this.T.btn_ok || 'OK'
-          }));
+          });
         } else {
           alert(this.T.info_select_group_first || 'Sila pilih kumpulan dahulu melalui butang Akses Menu.');
         }
@@ -1172,17 +1306,21 @@ const MenuAccess = {
     this.$ME('#em_show_staff_only_yes').checked = true;
     this.$ME('#em_flag_on').checked = true;
 
-    this.populateModuls(null).then(() => {
-      this.editModalEl.dataset.mode = 'create';
-      this.updateEditModalUI('create');
-      if (parentModal && this.modalEl?.classList.contains('show')) {
-        this.restoreParentMenuModal = true;
-        parentModal.hide();
-      } else {
-        this.restoreParentMenuModal = false;
-      }
-      modal.show();
-    });
+    this.editModalEl.dataset.mode = 'create';
+    this.updateEditModalUI('create');
+    if (parentModal && this.modalEl?.classList.contains('show')) {
+      this.restoreParentMenuModal = true;
+      parentModal.hide();
+    } else {
+      this.restoreParentMenuModal = false;
+    }
+    modal.show();
+    this.populateModuls(null)
+      .then(() => this.populateSubgroups(this.$ME('#em_modulID')?.value || '', 0))
+      .catch((e) => {
+        this.editErrorEl.textContent = e.message || this.T.error_network;
+        this.editErrorEl.classList.remove('d-none');
+      });
   },
   
   async openEditMenu(menuID) {
@@ -1190,6 +1328,20 @@ const MenuAccess = {
     if (!modal) return;
     const parentModal = GroupUtils.getModal(this.modalEl);
     this.editErrorEl.classList.add('d-none');
+    this.editModalEl.dataset.mode = 'edit';
+    this.updateEditModalUI('edit');
+    this.$ME('#em_menuID').value = '';
+    this.$ME('#em_path').value = '';
+    this.$ME('#em_name_ms').value = '';
+    this.$ME('#em_name_en').value = '';
+    this.$ME('#em_domain').value = 'SHARED';
+    if (parentModal && this.modalEl?.classList.contains('show')) {
+      this.restoreParentMenuModal = true;
+      parentModal.hide();
+    } else {
+      this.restoreParentMenuModal = false;
+    }
+    modal.show();
     try {
       const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl('menu-get.php', { menuID }));
       if (!j || j.error) {
@@ -1204,15 +1356,7 @@ const MenuAccess = {
       (parseInt(j.menu.f_show_staff_only ?? 1, 10) === 1 ? (this.$ME('#em_show_staff_only_yes').checked = true) : (this.$ME('#em_show_staff_only_no').checked = true));
       (parseInt(j.menu.f_flag ?? 0, 10) === 1 ? (this.$ME('#em_flag_on').checked = true) : (this.$ME('#em_flag_off').checked = true));
       await this.populateModuls(j.menu.f_modulID);
-      this.editModalEl.dataset.mode = 'edit';
-      this.updateEditModalUI('edit');
-      if (parentModal && this.modalEl?.classList.contains('show')) {
-        this.restoreParentMenuModal = true;
-        parentModal.hide();
-      } else {
-        this.restoreParentMenuModal = false;
-      }
-      modal.show();
+      await this.populateSubgroups(j.menu.f_modulID, j.menu.f_subgroupID || 0);
     } catch (e) {
       this.showError(e.message || this.T.error_network);
     }
@@ -1220,6 +1364,7 @@ const MenuAccess = {
   
   async handleSave() {
     const modal = GroupUtils.getModal(this.editModalEl);
+    const saveButton = document.getElementById('menuEditSaveBtn');
     const mode = this.editModalEl.dataset.mode || 'edit';
     this.editErrorEl.classList.add('d-none');
 
@@ -1231,6 +1376,7 @@ const MenuAccess = {
       groupID,
       menuID: parseInt((this.$ME('#em_menuID')?.value || '0'), 10),
       modulID: parseInt((this.$ME('#em_modulID')?.value || '0'), 10),
+      subgroupID: parseInt((this.$ME('#em_subgroupID')?.value || '0'), 10) || 0,
       path: (this.$ME('#em_path')?.value || '').trim(),
       name_ms: this.$ME('#em_name_ms')?.value || '',
       name_en: this.$ME('#em_name_en')?.value || '',
@@ -1258,6 +1404,8 @@ const MenuAccess = {
 
     try {
       const target = (mode === 'create') ? 'menu-create.php' : 'menu-save.php';
+      GroupUtils.showLoader('menuAction', this.T.loading || this.T.btn_save || 'Loading...');
+      GroupUtils.setButtonBusy(saveButton, true, this.T.saving || 'Saving...');
       const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl(target, { groupID }), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': GroupUtils.getCSRF() },
@@ -1287,17 +1435,11 @@ const MenuAccess = {
       if (document.getElementById('em_groupID')) {
         document.getElementById('em_groupID').value = String(groupID);
       }
-      if (window.Swal && typeof Swal.fire === 'function') {
-        await (window.GroupSwal ? GroupSwal.fire({
-          icon: 'success',
-          title: mode === 'create' ? (this.T.menu_save_success_create || 'Menu berjaya ditambah') : (this.T.menu_save_success_update || 'Menu berjaya dikemaskini'),
-          confirmButtonText: this.T.btn_ok || 'OK'
-        }) : Swal.fire({
-          icon: 'success',
-          title: mode === 'create' ? (this.T.menu_save_success_create || 'Menu berjaya ditambah') : (this.T.menu_save_success_update || 'Menu berjaya dikemaskini'),
-          confirmButtonText: this.T.btn_ok || 'OK'
-        }));
-      }
+      const successAlert = GroupUtils.fireAlert({
+        icon: 'success',
+        title: mode === 'create' ? (this.T.menu_save_success_create || 'Menu berjaya ditambah') : (this.T.menu_save_success_update || 'Menu berjaya dikemaskini'),
+        confirmButtonText: this.T.btn_ok || 'OK'
+      });
       await this.refreshGroupTableRow(groupID, {
         groupID,
         groupKod: GroupState.getLastMenuBtn()?.getAttribute('data-group-kod') || '',
@@ -1309,15 +1451,20 @@ const MenuAccess = {
       if (shouldRestoreParent) {
         const parentModal = GroupUtils.getModal(this.modalEl);
         if (parentModal) {
-          parentModal.show();
+          await this.waitForModalShown(this.modalEl, parentModal);
         }
       }
       this.pendingParentRestoreAfterSave = false;
-      this.openMenuEditor(groupID);
+      await this.openMenuEditor(groupID);
+      this.adjustMenuDataTable();
+      await successAlert;
     } catch (e) {
       this.pendingParentRestoreAfterSave = false;
       this.editErrorEl.textContent = e.message || this.T.error_network;
       this.editErrorEl.classList.remove('d-none');
+    } finally {
+      GroupUtils.setButtonBusy(saveButton, false);
+      GroupUtils.hideLoader('menuAction');
     }
   },
   
@@ -1398,6 +1545,7 @@ const MenuAccess = {
       if (delBtn) delBtn.disabled = true;
     }
 
+    GroupUtils.showLoader('menuAction', MenuAccess.T.loading || MenuAccess.T.confirm_yes || 'Loading...');
     try {
       const payload = {
         csrf_token: GroupUtils.getCSRF(),
@@ -1428,19 +1576,12 @@ const MenuAccess = {
         this.openMenuEditor(GroupState.getMenuGroupID());
       }
 
-      if (window.Swal && Swal.fire) {
-        (window.GroupSwal ? GroupSwal.fire({
-          icon: 'success',
-          title: MenuAccess.T.deleted_title || 'Dipadam',
-          text: MenuAccess.formatText(MenuAccess.T.delete_menu_cleanup_success || 'Menu "{name}" dibersihkan dari semua kumpulan.', { name: prettyName }),
-          confirmButtonText: MenuAccess.T.btn_ok || 'OK'
-        }) : Swal.fire({
-          icon: 'success',
-          title: MenuAccess.T.deleted_title || 'Dipadam',
-          text: MenuAccess.formatText(MenuAccess.T.delete_menu_cleanup_success || 'Menu "{name}" dibersihkan dari semua kumpulan.', { name: prettyName }),
-          confirmButtonText: MenuAccess.T.btn_ok || 'OK'
-        }));
-      }
+      const successAlert = GroupUtils.fireAlert({
+        icon: 'success',
+        title: MenuAccess.T.deleted_title || 'Dipadam',
+        text: MenuAccess.formatText(MenuAccess.T.delete_menu_cleanup_success || 'Menu "{name}" dibersihkan dari semua kumpulan.', { name: prettyName }),
+        confirmButtonText: MenuAccess.T.btn_ok || 'OK'
+      });
       await this.refreshGroupTableRow(GroupState.getMenuGroupID(), {
         groupID: GroupState.getMenuGroupID(),
         groupKod: GroupState.getLastMenuBtn()?.getAttribute('data-group-kod') || '',
@@ -1448,8 +1589,19 @@ const MenuAccess = {
         modulAccess: GroupState.getModulIDs(),
         menuAccess: GroupState.getMenuIDs().filter((id) => parseInt(id, 10) !== parseInt(menuID, 10)),
       });
+      if (
+        window.ModuleAccess
+        && typeof window.ModuleAccess.reloadCurrentAccess === 'function'
+      ) {
+        const accessGroupId = parseInt(window.ModuleAccess.currentGroup?.id || '0', 10) || 0;
+        const menuGroupId = parseInt(GroupState.getMenuGroupID() || '0', 10) || 0;
+        if (accessGroupId > 0 && accessGroupId === menuGroupId) {
+          await window.ModuleAccess.reloadCurrentAccess();
+        }
+      }
       await this.refreshVisibleGroupTableRows();
       this.syncSidebarAfterNavigationChange();
+      await successAlert;
     } catch (e) {
       if (window.Swal && Swal.fire) {
         (window.GroupSwal ? GroupSwal.fire({
@@ -1468,6 +1620,7 @@ const MenuAccess = {
       }
     } finally {
       if (delBtn) delBtn.disabled = false;
+      GroupUtils.hideLoader('menuAction');
     }
   },
   
@@ -1505,6 +1658,270 @@ const MenuAccess = {
       sel.appendChild(opt);
     }
   },
+
+  async populateSubgroups(modulID, selected) {
+    const sel = this.$ME('#em_subgroupID');
+    if (!sel) return;
+    sel.innerHTML = '<option value="0">' + GroupUtils.esc(this.T.subgroup_none || 'Tiada subgroup') + '</option>';
+    const mid = parseInt(modulID || '0', 10) || 0;
+    if (!mid) return;
+    try {
+      const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl('menu-subgroup-list.php', { modulID: mid, active: 1 }));
+      const rows = Array.isArray(j?.subgroups) ? j.subgroups : [];
+      rows.forEach((sg) => {
+        const opt = document.createElement('option');
+        opt.value = String(sg.id);
+        opt.textContent = sg.name || sg.name_ms || ('Subgroup ' + sg.id);
+        if (parseInt(selected || '0', 10) === parseInt(sg.id, 10)) opt.selected = true;
+        sel.appendChild(opt);
+      });
+    } catch (e) {
+      console.warn('populateSubgroups failed', e);
+    }
+  },
+
+  async populateModuleSelect(selectId, selected) {
+    const sel = document.getElementById(selectId);
+    if (!sel) return;
+    sel.innerHTML = '<option value="">' + GroupUtils.esc(this.T.loading_modules || 'Memuatkan modul...') + '</option>';
+    let options = [];
+    const normalizeModules = (rows) => (Array.isArray(rows) ? rows : []).map(m => ({
+      id: parseInt(m.id ?? m.f_modulID, 10),
+      nama: String(m.nama || m.modulName || m.f_modulName_ms || m.f_modulName_en || ('Modul ' + (m.id || m.f_modulID)))
+    })).filter(x => Number.isInteger(x.id) && x.id > 0);
+    try {
+      const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl('modul-list.php'));
+      options = normalizeModules(Array.isArray(j?.moduls) ? j.moduls : (Array.isArray(j) ? j : []));
+    } catch (e) {
+      options = normalizeModules(window.GroupModuleOptions || []);
+    }
+    sel.innerHTML = '';
+    options.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = String(m.id);
+      opt.textContent = m.nama;
+      if (selected && parseInt(selected, 10) === m.id) opt.selected = true;
+      sel.appendChild(opt);
+    });
+  },
+
+  setSubgroupIcon(icon) {
+    const value = String(icon || 'ri-folder-2-line').trim() || 'ri-folder-2-line';
+    const input = document.getElementById('sg_icon');
+    if (input) input.value = value;
+    document.querySelectorAll('#sg_iconPicker .subgroup-icon-option').forEach((btn) => {
+      btn.classList.toggle('active', btn.getAttribute('data-icon') === value);
+    });
+  },
+
+  setSubgroupOrderPreview(value) {
+    const numeric = parseInt(value || '0', 10) || 0;
+    const input = document.getElementById('sg_order');
+    const preview = document.getElementById('sg_orderPreview');
+    if (input) input.value = String(numeric);
+    if (preview) preview.textContent = numeric > 0 ? ('#' + numeric) : 'Auto';
+  },
+
+  resetSubgroupForm(row) {
+    const data = row || {};
+    const setValue = (id, value) => {
+      const el = document.getElementById(id);
+      if (el) el.value = value == null ? '' : String(value);
+    };
+    setValue('sg_subgroupID', data.id || 0);
+    setValue('sg_code', data.code || '');
+    setValue('sg_name_ms', data.name_ms || '');
+    setValue('sg_name_en', data.name_en || '');
+    this.setSubgroupIcon(data.icon || 'ri-folder-2-line');
+    this.setSubgroupOrderPreview(data.id ? (data.sortOrder || 1) : 0);
+    setValue('sg_status', data.status == null ? 1 : data.status);
+    if (data.modulID) setValue('sg_modulID', data.modulID);
+    document.getElementById('menuSubgroupError')?.classList.add('d-none');
+  },
+
+  async showSubgroupAlert(options = {}) {
+    return GroupUtils.fireAlert(Object.assign({
+      confirmButtonText: this.T.ok || 'OK'
+    }, options));
+  },
+
+  async showSubgroupInUseAlert(row) {
+    const name = String(row?.name || row?.name_ms || this.T.field_subgroup || 'Subgroup');
+    const count = parseInt(row?.menuCount || '0', 10) || 0;
+    await this.showSubgroupAlert({
+      icon: 'info',
+      title: this.T.not_allowed_title || 'Tidak Dibenarkan',
+      html: '<div class="text-start">' +
+        '<p class="mb-2">' + GroupUtils.esc(this.T.subgroup_in_use || 'Subgroup ini sedang digunakan oleh menu. Pindahkan menu dahulu sebelum padam.') + '</p>' +
+        '<div class="small text-muted">' + GroupUtils.esc(name + (count > 0 ? (' · ' + count + ' menu') : '')) + '</div>' +
+        '</div>'
+    });
+  },
+
+  async confirmSubgroupDelete(row) {
+    const name = String(row?.name || row?.name_ms || this.T.field_subgroup || 'Subgroup');
+    const title = MenuAccess.formatText(this.T.subgroup_confirm_delete_title || this.T.subgroup_confirm_delete || 'Padam subgroup "{name}"?', { name });
+    const text = MenuAccess.formatText(this.T.subgroup_confirm_delete_text || 'Subgroup "{name}" akan dipadam jika tiada menu yang menggunakan subgroup ini.', { name });
+    const result = await GroupUtils.fireAlert({
+      icon: 'warning',
+      title,
+      text,
+      showCancelButton: true,
+      confirmButtonText: this.T.confirm_yes_delete || this.T.confirm_yes || 'Ya, Padam',
+      cancelButtonText: this.T.confirm_cancel || 'Batal',
+      reverseButtons: true,
+      focusCancel: true
+    });
+    return !!(result && result.isConfirmed);
+  },
+
+  async openSubgroupManager() {
+    if (!this.subgroupModalEl) return;
+    const parentModal = GroupUtils.getModal(this.modalEl);
+    await this.populateModuleSelect('sg_modulID', this.$ME('#em_modulID')?.value || '');
+    this.resetSubgroupForm();
+    await this.loadSubgroupsForManager();
+    const modal = GroupUtils.getModal(this.subgroupModalEl);
+    if (!modal) return;
+    if (parentModal && this.modalEl?.classList.contains('show')) {
+      this.restoreParentAfterSubgroupModal = true;
+      await new Promise((resolve) => {
+        this.modalEl.addEventListener('hidden.bs.modal', resolve, { once: true });
+        parentModal.hide();
+      });
+    } else {
+      this.restoreParentAfterSubgroupModal = false;
+    }
+    modal.show();
+  },
+
+  async loadSubgroupsForManager() {
+    const tableBody = document.querySelector('#menuSubgroupTable tbody');
+    if (!tableBody) return;
+    tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">' + GroupUtils.esc(this.T.loading || 'Loading') + '...</td></tr>';
+    const modulID = parseInt(document.getElementById('sg_modulID')?.value || '0', 10) || 0;
+    GroupUtils.showLoader('menuAction', this.T.loading || 'Loading...');
+    try {
+      const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl('menu-subgroup-list.php', { modulID, active: 1 }));
+      const rows = Array.isArray(j?.subgroups) ? j.subgroups : [];
+      this.subgroupRows = rows;
+      const editingID = parseInt(document.getElementById('sg_subgroupID')?.value || '0', 10) || 0;
+      if (!editingID) {
+        this.setSubgroupOrderPreview(0);
+      }
+      if (!rows.length) {
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted py-4">' + GroupUtils.esc(this.T.no_records || 'Tiada rekod') + '</td></tr>';
+        return;
+      }
+      tableBody.innerHTML = rows.map((r, idx) => {
+        const safeName = GroupUtils.esc(r.name || r.name_ms || '-');
+        const menuCount = parseInt(r.menuCount || '0', 10) || 0;
+        const deleteBtn = menuCount > 0
+          ? ' <button type="button" class="btn btn-sm btn-outline-secondary sg-delete-blocked" title="' + GroupUtils.esc(this.T.subgroup_in_use || 'Subgroup ini sedang digunakan oleh menu.') + '"><i class="ri-lock-line"></i></button>'
+          : ' <button type="button" class="btn btn-sm btn-outline-danger sg-delete" title="' + GroupUtils.esc(this.T.delete || 'Delete') + '"><i class="ri-delete-bin-line"></i></button>';
+        return '<tr data-index="' + idx + '">' +
+          '<td class="align-top">' + GroupUtils.esc(r.modulName || ('Modul ' + r.modulID)) + '</td>' +
+          '<td class="align-top"><div class="fw-semibold"><i class="' + GroupUtils.esc(r.icon || 'ri-folder-2-line') + ' me-1"></i>' + safeName + '</div><div class="small text-muted">' + GroupUtils.esc(r.code || '-') + (menuCount > 0 ? ' · ' + GroupUtils.esc(menuCount + ' menu') : '') + '</div></td>' +
+          '<td class="text-center align-top">' + GroupUtils.esc(r.sortOrder || 1) + '</td>' +
+          '<td class="text-center align-top"><button type="button" class="btn btn-sm btn-outline-secondary sg-edit"><i class="ri-pencil-line"></i></button>' + deleteBtn + '</td>' +
+          '</tr>';
+      }).join('');
+    } catch (e) {
+      tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger py-4">' + GroupUtils.esc(e.message || this.T.subgroup_load_fail || 'Gagal memuat subgroup') + '</td></tr>';
+    } finally {
+      GroupUtils.hideLoader('menuAction');
+    }
+  },
+
+  async saveSubgroup() {
+    const errEl = document.getElementById('menuSubgroupError');
+    if (errEl) errEl.classList.add('d-none');
+    const payload = {
+      subgroupID: parseInt(document.getElementById('sg_subgroupID')?.value || '0', 10) || 0,
+      modulID: parseInt(document.getElementById('sg_modulID')?.value || '0', 10) || 0,
+      code: (document.getElementById('sg_code')?.value || '').trim(),
+      name_ms: (document.getElementById('sg_name_ms')?.value || '').trim(),
+      name_en: (document.getElementById('sg_name_en')?.value || '').trim(),
+      icon: document.getElementById('sg_icon')?.value || 'ri-folder-2-line',
+      order: parseInt(document.getElementById('sg_order')?.value || '0', 10) || 0,
+      status: parseInt(document.getElementById('sg_status')?.value || '1', 10) === 1 ? 1 : 0
+    };
+    if (!payload.modulID || !payload.name_ms) {
+      await this.showSubgroupAlert({
+        icon: 'error',
+        title: this.T.error || 'Ralat',
+        text: this.T.subgroup_required || 'Sila pilih modul dan isi nama subgroup.'
+      });
+      return;
+    }
+    GroupUtils.showLoader('menuAction', this.T.loading || this.T.btn_save || 'Loading...');
+    const saveButton = document.getElementById('menuSubgroupSaveBtn');
+    GroupUtils.setButtonBusy(saveButton, true, this.T.saving || 'Saving...');
+    try {
+      const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl('menu-subgroup-save.php'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': GroupUtils.getCSRF() },
+        body: JSON.stringify(payload)
+      });
+      if (!j || j.error) throw new Error((j && j.message) || this.T.error_save || 'Gagal menyimpan.');
+      this.resetSubgroupForm({ modulID: payload.modulID });
+      await this.loadSubgroupsForManager();
+      await this.populateSubgroups(this.$ME('#em_modulID')?.value || '', this.$ME('#em_subgroupID')?.value || 0);
+      this.syncSidebarAfterNavigationChange();
+      await this.showSubgroupAlert({
+        icon: 'success',
+        title: this.T.success_title || 'Berjaya',
+        text: (j && j.message) || this.T.subgroup_save_success || 'Subgroup berjaya disimpan.'
+      });
+    } catch (e) {
+      if (errEl) errEl.classList.add('d-none');
+      await this.showSubgroupAlert({
+        icon: 'error',
+        title: this.T.error || 'Ralat',
+        text: e.message || this.T.error_network
+      });
+    } finally {
+      GroupUtils.setButtonBusy(saveButton, false);
+      GroupUtils.hideLoader('menuAction');
+    }
+  },
+
+  async deleteSubgroup(row) {
+    if (!row || !row.id) return;
+    if ((parseInt(row.menuCount || '0', 10) || 0) > 0) {
+      await this.showSubgroupInUseAlert(row);
+      return;
+    }
+    const ok = await this.confirmSubgroupDelete(row);
+    if (!ok) return;
+    GroupUtils.showLoader('menuAction', this.T.loading || this.T.confirm_yes_delete || 'Loading...');
+    try {
+      const j = await GroupUtils.fetchJSONSafe(GroupUtils.apiUrl('menu-subgroup-delete.php'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': GroupUtils.getCSRF() },
+        body: JSON.stringify({ subgroupID: row.id })
+      });
+      if (!j || j.error) throw new Error((j && j.message) || this.T.delete_fail || 'Gagal memadam.');
+      await this.loadSubgroupsForManager();
+      await this.populateSubgroups(this.$ME('#em_modulID')?.value || '', 0);
+      this.syncSidebarAfterNavigationChange();
+      await this.showSubgroupAlert({
+        icon: 'success',
+        title: this.T.deleted_title || this.T.success_title || 'Dipadam',
+        text: (j && j.message) || this.T.subgroup_delete_success || 'Subgroup berjaya dipadam.'
+      });
+    } catch (e) {
+      const errEl = document.getElementById('menuSubgroupError');
+      if (errEl) errEl.classList.add('d-none');
+      await this.showSubgroupAlert({
+        icon: 'error',
+        title: this.T.delete_failed_title || this.T.error || 'Gagal',
+        text: e.message || this.T.error_network
+      });
+    } finally {
+      GroupUtils.hideLoader('menuAction');
+    }
+  },
   
   openMenuFromBtn(btn) {
     const el = document.getElementById('aksesMenuModal');
@@ -1512,6 +1929,7 @@ const MenuAccess = {
     const gkod = btn.getAttribute('data-group-kod') || '';
     const gnam = btn.getAttribute('data-group-nama') || '';
 
+    GroupState.setLastMenuBtn(btn);
     GroupState.setMenuGroupID(gid);
     if (this.subEl) this.subEl.textContent = gkod + (gnam ? ' — ' + gnam : '');
 
