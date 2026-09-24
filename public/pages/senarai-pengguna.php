@@ -89,15 +89,7 @@ function format_stafid(?string $id): string {
 
 function is_staff_option_record(array $row): bool {
   $nopekerja = trim((string)($row['nopekerja'] ?? ''));
-  $idpekerja = trim((string)($row['idpekerja'] ?? ''));
-  $jawatan   = trim((string)($row['jawatan'] ?? ''));
-  $jabatan   = trim((string)($row['jabatan'] ?? ''));
-
-  if ($nopekerja === '') {
-    return false;
-  }
-
-  return $idpekerja !== '' || $jawatan !== '' || $jabatan !== '';
+  return $nopekerja !== '';
 }
 
 function group_category_matches_scope(?string $categoryUser, string $scope = 'staff'): bool {
@@ -641,14 +633,19 @@ function render_user_access_table(
 // Staf list akan di-load via AJAX endpoint (user-list-staf-options.php) dengan caching
 // Ini mengurangkan initial page load time
 // Namun, sediakan fallback dari session cache supaya dropdown ada data jika cache wujud
-$senaraiStaf = [];
+$senaraiStaf = array_values(array_filter(
+  $controller->senaraiStaf ?? [],
+  static fn($row) => is_array($row) && is_staff_option_record($row)
+));
 $existingStafIDs = [];
 try {
   if (isset($_SESSION['userlist_cache']['staf_options_list']['val']) && is_array($_SESSION['userlist_cache']['staf_options_list']['val'])) {
-    $senaraiStaf = array_values(array_filter(
-      $_SESSION['userlist_cache']['staf_options_list']['val'],
-      static fn($row) => is_array($row) && is_staff_option_record($row)
-    ));
+    if (empty($senaraiStaf)) {
+      $senaraiStaf = array_values(array_filter(
+        $_SESSION['userlist_cache']['staf_options_list']['val'],
+        static fn($row) => is_array($row) && is_staff_option_record($row)
+      ));
+    }
   }
 
   // Existing staf IDs digunakan untuk disable option jika user sudah wujud
@@ -6287,6 +6284,19 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
               $sel.select2('destroy');
             }
 
+            // Senarai yang dijana pada pelayan ialah sandaran jika AJAX gagal.
+            // Jangan gantikan pilihan sedia ada dengan mesej ralat kosong.
+            const fallbackStaffOptions = auStafSelect.innerHTML;
+            const hasFallbackStaffOptions = Array.from(auStafSelect.options)
+              .some(option => String(option.value || '').trim() !== '');
+            function restoreStaffFallback(message) {
+              if (hasFallbackStaffOptions) {
+                auStafSelect.innerHTML = fallbackStaffOptions;
+                return;
+              }
+              auStafSelect.innerHTML = '<option value="">' + message + '</option>';
+            }
+
             currentStudentSelection = null;
 
             // Lazy load options ikut scope semasa
@@ -6403,7 +6413,7 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
                 try {
                   j = JSON.parse(text);
                 } catch (pe) {
-                  auStafSelect.innerHTML = '<option value=""><?= h(__('userList_err_invalid_response')) ?></option>';
+                  restoreStaffFallback('<?= h(__('userList_err_invalid_response')) ?>');
                 }
 
                 if (j) {
@@ -6427,14 +6437,14 @@ $PAGE_TITLE = (string)__('userList_page_heading_main');
                     setSafeInnerHTML(auStafSelect, j.html || '');
                     ensureStaffPlaceholder();
                   } else {
-                    auStafSelect.innerHTML = '<option value=""><?= h(__('userList_err_load_staff')) ?></option>';
+                    restoreStaffFallback('<?= h(__('userList_err_load_staff')) ?>');
                   }
                 }
               } else {
-                auStafSelect.innerHTML = '<option value=""><?= h(__('userList_err_load_staff')) ?></option>';
+                restoreStaffFallback('<?= h(__('userList_err_load_staff')) ?>');
               }
             } catch (e) {
-              auStafSelect.innerHTML = '<option value=""><?= h(__('userList_err_load_staff')) ?></option>';
+              restoreStaffFallback('<?= h(__('userList_err_load_staff')) ?>');
             }
 
             if (auStafSelect) {

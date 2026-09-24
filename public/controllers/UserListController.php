@@ -31,15 +31,7 @@ class UserListController {
 
   private static function isStaffOptionRecord(array $row): bool {
     $nopekerja = trim((string)($row['nopekerja'] ?? ''));
-    $idpekerja = trim((string)($row['idpekerja'] ?? ''));
-    $jawatan   = trim((string)($row['jawatan'] ?? ''));
-    $jabatan   = trim((string)($row['jabatan'] ?? ''));
-
-    if ($nopekerja === '') {
-      return false;
-    }
-
-    return $idpekerja !== '' || $jawatan !== '' || $jabatan !== '';
+    return $nopekerja !== '';
   }
 
   public function __construct() {
@@ -99,7 +91,8 @@ class UserListController {
           LTRIM(RTRIM(s.jawatansemasa)) AS jawatan,
           LTRIM(RTRIM(s.jabatansemasa)) AS jabatan
         FROM v630staf_service_skim_all s
-        WHERE CONVERT(INT, s.kodstatus) = 1
+        WHERE ISNUMERIC(s.kodstatus) = 1
+          AND CONVERT(INT, s.kodstatus) = 1
           AND s.nopekerja IS NOT NULL
           AND LTRIM(RTRIM(s.nopekerja)) <> ''
         ORDER BY s.gelar_nama ASC

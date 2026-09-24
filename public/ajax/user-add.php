@@ -143,6 +143,7 @@ try {
                 status
             FROM v630staf_service_skim_all
             WHERE nopekerja = :nopekerja
+              AND ISNUMERIC(kodstatus) = 1
               AND CONVERT(INT, kodstatus) = 1
         ";
         $sybaseStmt = $pdoSybase->prepare($sybaseSql);

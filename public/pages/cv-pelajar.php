@@ -1,0 +1,41 @@
+<?php
+declare(strict_types=1);
+require_once __DIR__ . '/../includes/init.php';
+require_login();
+require_once __DIR__ . '/../controllers/MaklumatPelajarController.php';
+$matrik = trim((string)($_GET['matrik'] ?? ''));
+$controller = new MaklumatPelajarController($matrik);
+ensure_current_page_access($controller->profile, Database::pdoMysql());
+$student = $controller->student;
+if (!function_exists('h')) { function h(mixed $value): string { return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); } }
+function cvv(?array $student, string $key, string $fallback = '-'): string { $value = trim((string)($student[$key] ?? '')); if ($value === '') return $fallback; return str_contains($value, '@') ? mb_strtolower($value, 'UTF-8') : mb_strtoupper($value, 'UTF-8'); }
+function cvImage(string $matrik): string { return 'https://kemasukan.upnm.edu.my/tawaran/pelajar/student_image/' . rawurlencode($matrik); }
+?>
+<!doctype html><html lang="ms"><head><?php include __DIR__ . '/../includes/head.php'; ?><link rel="stylesheet" href="<?= h(base_url('assets/css/pages/cv-pelajar.css')) ?>?v=<?= h((string)filemtime(__DIR__ . '/../assets/css/pages/cv-pelajar.css')) ?>"></head><body><div class="wrapper"><?php include __DIR__ . '/../includes/topbar.php'; ?><?php include __DIR__ . '/../includes/sidebar.php'; ?><div class="content-page"><div class="content"><div class="container-fluid">
+<div class="page-title-box cv-no-print"><h4 class="page-title"><i class="ri-file-user-line me-1"></i>Curriculum Vitae Pelajar</h4></div>
+<div class="card mb-3 cv-no-print cv-search-card"><div class="card-body d-flex flex-column flex-lg-row justify-content-between align-items-lg-end gap-3"><div><h5 class="mb-1">Carian Curriculum Vitae Pelajar</h5><p class="text-muted mb-3">Masukkan nombor matrik untuk memaparkan curriculum vitae pelajar.</p><form class="d-flex gap-2" method="get"><input class="form-control" style="width:260px" name="matrik" value="<?= h($matrik) ?>" placeholder="No. Matrik"><button class="btn btn-primary"><i class="ri-search-line me-1"></i>Papar</button><a class="btn btn-outline-secondary" href="cv-pelajar.php">Reset</a></form></div><div class="d-flex gap-2"><a class="btn btn-light" href="senarai-pelajar.php"><i class="ri-arrow-left-line me-1"></i>Kembali ke Senarai Keseluruhan</a><?php if ($student): ?><a class="btn btn-primary" target="_blank" href="../ajax/cv-pelajar-pdf.php?matrik=<?= rawurlencode($matrik) ?>"><i class="ri-file-pdf-line me-1"></i>Generate PDF</a><?php endif; ?></div></div></div>
+<?php if (!$student): ?><div class="alert alert-info">Masukkan nombor matrik untuk memaparkan curriculum vitae pelajar.</div><?php else: ?><?php $image = cvImage(cvv($student,'matrik','')); ?>
+<main class="cv detail-view"><header class="cv-template-header"><div class="cv-brand"><img class="cv-brand-logo" src="<?= h(base_url('assets/images/logo-upnm.png')) ?>" alt="Logo UPNM"><div class="cv-letterhead-copy"><div class="cv-document-title">CURRICULUM VITAE PELAJAR</div><div class="cv-university">UNIVERSITI PERTAHANAN NASIONAL MALAYSIA</div><div class="cv-letterhead-contact"><span>Kem Perdana Sungai Besi, 57000 Kuala Lumpur</span><span>Telefon: +603-9051 3400 &middot; Emel: ppap@upnm.edu.my</span></div></div></div><div class="cv-header-student"><div class="cv-student-identity"><div class="cv-student-name"><?= h(cvv($student,'nama')) ?></div><div class="cv-student-matrik">NO. MATRIK: <?= h(cvv($student,'matrik')) ?></div></div><img class="cv-template-photo photo" src="<?= h($image . '.jpg') ?>" data-jpeg="<?= h($image . '.jpeg') ?>" data-fallback="<?= h(base_url('assets/images/no-image.jpg')) ?>" alt="Gambar Pelajar"></div></header>
+<?php
+$student = array_merge($student, $controller->guardians);
+$personal = [['Nama','nama'],['No. Matrik','matrik'],['No. Kad Pengenalan','nokp'],['Tarikh Lahir','tarikh_lahir'],['No. Tentera','no_tentera'],['Jantina','jantina'],['Bangsa','bangsa'],['Agama','agama'],['Negeri Lahir','negeri_lahir'],['Warganegara','warga'],['Kewarganegaraan','kewarganegaraan'],['No. OKU','oku_no'],['Jenis OKU','oku_code'],['Telefon (Rumah)','telefon_rumah'],['Telefon (H/P)','telefon_hp'],['Telefon Terkini','telefon_terkini'],['Alamat','alamat_penuh'],['Emel','email'],['Emel Al Fateh','email_al_fateh']];
+$study = [['Kod Program','kod_program'],['Program','program_asal'],['Kod Fakulti','kdfakulti'],['Fakulti','fakulti'],['Kod Sesi Masuk','kdsesimasuk'],['Sesi Masuk','sesi_masuk'],['Kod Semester Semasa','kdsemsemasa'],['Semester Semasa','semester'],['No. Semester','nosem'],['Status','status'],['Kategori','kategori'],['Tarikh Daftar','tarikh_daftar'],['Penasihat Akademik','penasihat_akademik'],['MUET','muet']];
+$address = implode(', ', array_filter([cvv($student,'alamat1',''),cvv($student,'alamat2',''),cvv($student,'alamat3',''),cvv($student,'alamat4',''),cvv($student,'negeri','')]));
+$student['alamat_penuh'] = $address ?: '-';
+?>
+<section class="cv-section"><h2 class="cv-section-title"><i class="ri-user-3-line"></i>Maklumat Peribadi</h2><div class="cv-info-grid cv-info-grid--four"><?php foreach($personal as [$label,$key]): ?><div class="cv-info-item<?= $key === 'alamat_penuh' ? ' cv-info-item--full' : '' ?>"><span class="cv-info-label"><?= h($label) ?></span><span class="cv-info-value<?= str_contains($key,'email') ? ' email' : '' ?>"><?= h(cvv($student,$key)) ?></span></div><?php endforeach; ?></div></section>
+<section class="cv-section"><h2 class="cv-section-title"><i class="ri-graduation-cap-line"></i>Maklumat Pengajian</h2><div class="cv-info-grid"><?php foreach($study as [$label,$key]): ?><div class="cv-info-item<?= in_array($key,['program_asal','penasihat_akademik'],true) ? ' cv-info-item--wide' : '' ?>"><span class="cv-info-label"><?= h($label) ?></span><span class="cv-info-value"><?= h(cvv($student,$key)) ?></span></div><?php endforeach; ?></div></section>
+<?php
+$blocks = [
+ ['MAKLUMAT PENJAGA / WARIS',[$controller->guardians],['Nama Bapa','Telefon Bapa','Nama Ibu','Telefon Ibu'],static fn($r)=>[$r['nama_bapa']??'-',$r['telefon_bapa']??'-',$r['nama_ibu']??'-',$r['telefon_ibu']??'-'],'ri-group-line'],
+ ['MAKLUMAT PEPERIKSAAN',$controller->examinationResults,['Semester','Status Akademik','PNGS','PNGK'],static fn($r)=>[$r['term']??'-',trim(($r['kdkelulusan']??'').' - '.($r['kelulusan']??'')),$r['pngs']??'-',$r['pngk']??'-'],'ri-file-list-3-line'],
+ ['KELAYAKAN AKADEMIK',$controller->spmResults,['Kod','Subjek','Gred'],static fn($r)=>[$r['kod']??'-',$r['subjek']??'-',$r['gred']??'-'],'ri-award-line'],
+ ['REKOD TATATERTIB',[],['Rekod'],static fn($r)=>[$r['rekod']??'-'],'ri-shield-check-line'],
+ ['MAKLUMAT STATUS PELAJAR',$controller->studentStatusChanges,['Tarikh Kuatkuasa','Sesi','Status Baru','Catatan'],static fn($r)=>[$r['tarikh']??'-',$r['sesi']??'-',trim(($r['kod_status']??'').' - '.($r['status']??'')),$r['catatan']??'-'],'ri-history-line'],
+ ['MAKLUMAT STATUS PROGRAM',$controller->programStatusChanges,['Tarikh Kuatkuasa','Program Asal','Program Baru','Catatan'],static fn($r)=>[$r['tarikh']??'-',$r['prog_asal']??'-',$r['prog_baru']??'-',$r['catatan']??'-'],'ri-git-branch-line'],
+ ['MAKLUMAT STATUS KADET',$controller->cadetStatusChanges,['Tarikh Kuatkuasa','Kadet Asal','Kadet Baru','Catatan'],static fn($r)=>[$r['tarikh']??'-',$r['kadetasal']??'-',$r['kadetbaru']??'-',$r['catatan']??'-'],'ri-shield-star-line']
+];
+foreach($blocks as [$title,$rows,$heads,$render,$icon]): ?>
+<section class="cv-section"><h2 class="cv-section-title"><i class="<?= h($icon) ?>"></i><?= h($title) ?></h2><table class="cv-data-table"><thead><tr><th>#</th><?php foreach($heads as $head): ?><th><?= h($head) ?></th><?php endforeach; ?></tr></thead><tbody><?php if($rows===[]): ?><tr><td colspan="<?= count($heads)+1 ?>" class="center">Tiada Rekod</td></tr><?php else: foreach($rows as $i=>$row): ?><tr><td><?= $i+1 ?></td><?php foreach($render($row) as $cell): ?><td><?= h((string)$cell) ?></td><?php endforeach; ?></tr><?php endforeach; endif; ?></tbody></table></section>
+<?php endforeach; ?></main><?php endif; ?>
+</div></div><?php include __DIR__ . '/../includes/footer.php'; ?></div></div><?php include __DIR__ . '/../includes/script.php'; ?><script>document.querySelectorAll('.photo').forEach(function(i){i.onerror=function(){if(i.src!==i.dataset.jpeg)i.src=i.dataset.jpeg;else i.src=i.dataset.fallback}})</script></body></html>

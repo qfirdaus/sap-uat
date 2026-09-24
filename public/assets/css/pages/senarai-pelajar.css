@@ -1,0 +1,14 @@
+#studentDT th,
+#studentDT td { white-space: nowrap; }
+
+#studentDT td:nth-child(3),
+#studentDT td:nth-child(8) { white-space: normal; min-width: 180px; }
+.student-list-card{border:0;box-shadow:0 3px 18px rgba(15,23,42,.06);font-size:.875rem}
+.student-list-card .card-body{padding:1.25rem 1.5rem}
+.student-list-card .card-title{color:#0f172a;font-size:1.05rem;font-weight:700}
+.student-list-card .text-muted{color:#64748b!important;font-size:.9rem}
+.student-list-card .form-label{font-size:.8125rem;font-weight:600}.student-list-card .form-control,.student-list-card .form-select,.student-list-card .btn{font-size:.875rem}
+/* Loader asal DataTables — lebih jelas tanpa menutup keseluruhan halaman. */
+#studentDT_wrapper .dataTables_processing{z-index:3;min-width:230px;padding:.7rem 1rem;border:1px solid rgba(147,197,253,.55)!important;border-radius:12px!important;background:rgba(239,246,255,.72)!important;color:#1d4ed8!important;font-size:.85rem;font-weight:700;box-shadow:0 8px 20px rgba(37,99,235,.1);backdrop-filter:blur(12px)}
+#studentDT_wrapper .dataTables_processing:before{content:'';display:inline-block;width:15px;height:15px;margin:-2px .55rem -2px 0;border:2px solid rgba(37,99,235,.22);border-top-color:#2563eb;border-radius:50%;vertical-align:middle;animation:student-table-loader-spin .7s linear infinite}
+@keyframes student-table-loader-spin{to{transform:rotate(360deg)}}

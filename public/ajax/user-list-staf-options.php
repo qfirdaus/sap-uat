@@ -24,15 +24,10 @@ header('Content-Type: application/json; charset=utf-8');
 
 function is_staff_option_record(array $row): bool {
     $nopekerja = trim((string)($row['nopekerja'] ?? ''));
-    $idpekerja = trim((string)($row['idpekerja'] ?? ''));
-    $jawatan   = trim((string)($row['jawatan'] ?? ''));
-    $jabatan   = trim((string)($row['jabatan'] ?? ''));
 
-    if ($nopekerja === '') {
-        return false;
-    }
-
-    return $idpekerja !== '' || $jawatan !== '' || $jabatan !== '';
+    // Nombor pekerja ialah pengenal yang digunakan semasa menambah pengguna.
+    // Rekod yang belum mempunyai jawatan/jabatan masih perlu boleh dipilih.
+    return $nopekerja !== '';
 }
 
 try {
@@ -93,7 +88,9 @@ try {
 
     // Load staf data from Sybase (with cache)
     $senaraiStaf = [];
-    if (is_array($cachedStaf)) {
+    // Jangan gunakan cache kosong; ia akan menyebabkan dropdown kekal tanpa data
+    // sehingga TTL tamat walaupun sambungan Sybase telah pulih.
+    if (is_array($cachedStaf) && !empty($cachedStaf)) {
         // Use cached data
         $senaraiStaf = array_values(array_filter(
             $cachedStaf,
@@ -113,7 +110,8 @@ try {
                     LTRIM(RTRIM(s.jawatansemasa)) AS jawatan,
                     LTRIM(RTRIM(s.jabatansemasa)) AS jabatan
                 FROM v630staf_service_skim_all s
-                WHERE CONVERT(INT, s.kodstatus) = 1
+                WHERE ISNUMERIC(s.kodstatus) = 1
+                    AND CONVERT(INT, s.kodstatus) = 1
                     AND s.nopekerja IS NOT NULL
                     AND LTRIM(RTRIM(s.nopekerja)) <> ''
                 ORDER BY s.gelar_nama ASC
