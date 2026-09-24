@@ -7,7 +7,7 @@ require_once __DIR__ . '/../controllers/SenaraiPelajarController.php';
 
 try {
     $controller = new SenaraiPelajarController('', 'semua', false);
-    require_page_access('pages/senarai-pelajar.php', $controller->profile, Database::pdoMysql());
+ensure_current_request_access($controller->profile, Database::pdoMysql());
     $group = prestasi_resolve_active_group($controller->profile, Database::pdoMysql());
     if (!in_array(strtoupper(trim((string)($group['kod'] ?? ''))), ['ADM-SA', 'ADM-PE'], true)) throw new RuntimeException('Akses muat turun gambar tidak dibenarkan.');
     if (!class_exists('ZipArchive')) throw new RuntimeException('Sambungan ZIP PHP tidak tersedia pada pelayan.');

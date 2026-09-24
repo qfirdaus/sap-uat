@@ -6,7 +6,7 @@ require_login();
 require_once __DIR__ . '/../controllers/SenaraiPelajarController.php';
 
 $access = new SenaraiPelajarController(null, null, false);
-require_page_access('pages/senarai-pelajar.php', $access->profile, Database::pdoMysql());
+ensure_current_page_access($access->profile, Database::pdoMysql());
 $PAGE_TITLE = 'Detail Laporan Pelajar';
 
 if (!function_exists('h')) { function h(mixed $value): string { return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); } }

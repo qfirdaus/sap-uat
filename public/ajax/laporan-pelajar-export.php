@@ -9,7 +9,7 @@ require_once __DIR__ . '/../controllers/SenaraiPelajarController.php';
 use Mpdf\Mpdf;
 
 $access = new SenaraiPelajarController(null, null, false);
-require_page_access('pages/senarai-pelajar.php', $access->profile, Database::pdoMysql());
+ensure_current_request_access($access->profile, Database::pdoMysql());
 
 $types = [
     'status' => ['Status Pelajar', "LTRIM(RTRIM(COALESCE(NULLIF(statusketerangan, ''), NULLIF(statuskategori, ''), 'Tidak Dinyatakan')))", 'status'],

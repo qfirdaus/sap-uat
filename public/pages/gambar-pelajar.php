@@ -6,7 +6,7 @@ require_login();
 require_once __DIR__ . '/../controllers/SenaraiPelajarController.php';
 
 $access = new SenaraiPelajarController('', 'semua', false);
-require_page_access('pages/senarai-pelajar.php', $access->profile, Database::pdoMysql());
+ensure_current_page_access($access->profile, Database::pdoMysql());
 if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
 
 $query = mb_substr(trim((string)($_GET['q'] ?? '')), 0, 100);

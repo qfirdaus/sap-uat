@@ -10,7 +10,7 @@ header('Content-Type: application/json; charset=utf-8');
 function photoJson(bool $success, string $message, int $status = 200): never { http_response_code($status); echo json_encode(['success' => $success, 'message' => $message], JSON_UNESCAPED_UNICODE); exit; }
 function photoManagerAllowed(): bool {
     $controller = new SenaraiPelajarController('', 'semua', false);
-    require_page_access('pages/senarai-pelajar.php', $controller->profile, Database::pdoMysql());
+    ensure_current_request_access($controller->profile, Database::pdoMysql());
     $group = prestasi_resolve_active_group($controller->profile, Database::pdoMysql());
     return in_array(strtoupper(trim((string)($group['kod'] ?? ''))), ['ADM-SA', 'ADM-PE'], true);
 }

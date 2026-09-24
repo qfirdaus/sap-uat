@@ -9,7 +9,7 @@ $matrik = trim((string)($_GET['matrik'] ?? ''));
 $controller = new MaklumatPelajarController($matrik);
 // Profil ialah sambungan kepada Senarai Pelajar, bukan menu berdiri sendiri.
 // Kekalkan akses mengikut menu asal supaya pautan Lihat tidak memerlukan menu kedua.
-require_page_access('pages/senarai-pelajar.php', $controller->profile, Database::pdoMysql());
+ensure_current_page_access($controller->profile, Database::pdoMysql());
 $activeStudentProfileGroup = prestasi_resolve_active_group($controller->profile, Database::pdoMysql());
 $canEditStudentProfile = strtoupper(trim((string)($activeStudentProfileGroup['kod'] ?? ''))) !== 'ADM-PE';
 if (empty($_SESSION['csrf_token'])) $_SESSION['csrf_token'] = bin2hex(random_bytes(32));

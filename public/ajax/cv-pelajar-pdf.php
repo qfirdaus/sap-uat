@@ -10,7 +10,7 @@ use Mpdf\Mpdf;
 
 $matrik = trim((string)($_GET['matrik'] ?? ''));
 $controller = new MaklumatPelajarController($matrik);
-require_page_access('pages/senarai-pelajar.php', $controller->profile, Database::pdoMysql());
+ensure_current_request_access($controller->profile, Database::pdoMysql());
 $student = $controller->student;
 if (!$student) { http_response_code(404); exit('Rekod pelajar tidak ditemui.'); }
 function pdfH(mixed $value): string { $value = mb_strtoupper(trim((string)$value) ?: '-', 'UTF-8'); if (in_array($value, ['MAKLUMAT STATUS PROGRAM', 'REKOD TATATERTIB'], true)) return '<pagebreak />' . $value; return htmlspecialchars($value, ENT_QUOTES, 'UTF-8'); }

@@ -5,7 +5,7 @@ require_login();
 require_once __DIR__ . '/../controllers/MaklumatPelajarController.php';
 $matrik = trim((string)($_GET['matrik'] ?? ''));
 $controller = new MaklumatPelajarController($matrik);
-require_page_access('pages/senarai-pelajar.php', $controller->profile, Database::pdoMysql());
+ensure_current_page_access($controller->profile, Database::pdoMysql());
 $student = $controller->student;
 if (!function_exists('h')) { function h(mixed $value): string { return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); } }
 function cvv(?array $student, string $key, string $fallback = '-'): string { $value = trim((string)($student[$key] ?? '')); if ($value === '') return $fallback; return str_contains($value, '@') ? mb_strtolower($value, 'UTF-8') : mb_strtoupper($value, 'UTF-8'); }
