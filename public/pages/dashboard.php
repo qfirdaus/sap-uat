@@ -327,6 +327,7 @@ addHealthCheck($healthChecks, t('dashboard_health_tz','Time & Timezone'), $tzSta
 <html lang="<?= h($controller->lang ?? 'ms') ?>" data-bs-theme="<?= h($_SESSION['theme.layout'] ?? 'light') ?>">
 <head>
   <?php include __DIR__ . '/../includes/head.php'; ?>
+  <link rel="stylesheet" href="<?= h(base_url('assets/css/pages/statistik-pelajar.css')) ?>">
   <link href="<?= base_url('assets/css/datatables-standard.css') ?>?v=<?= h($_ENV['APP_ASSET_VER'] ?? date('ymdHis')) ?>" rel="stylesheet">
   <style>
     .profile-card { overflow: hidden; border-radius: 8px; }
@@ -835,11 +836,17 @@ addHealthCheck($healthChecks, t('dashboard_health_tz','Time & Timezone'), $tzSta
           <?php endif; ?>
         </div>
 
+        <?php $studentStatsStandalone = false; include __DIR__ . '/../includes/student-statistics-section.php'; ?>
+
     <?php include __DIR__ . '/../includes/footer.php'; ?>
   </div>
 </div>
 
 <?php include __DIR__ . '/../includes/script.php'; ?>
+<?php if (!$studentStatsError): ?>
+<script>window.studentStats=<?= json_encode($studentStatsCharts, JSON_UNESCAPED_UNICODE) ?>;</script>
+<script src="<?= h(base_url('assets/js/pages/statistik-pelajar.js')) ?>"></script>
+<?php endif; ?>
 <script>
   (function(){
     const btn = document.getElementById('btnSysResRefresh');

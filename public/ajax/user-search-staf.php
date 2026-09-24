@@ -52,7 +52,7 @@ try {
     $pdoSybase = Database::pdoSybaseStaff();
 
     // Build WHERE clause
-    $where = ["CONVERT(INT, kodstatus) = 1"];
+    $where = ["ISNUMERIC(kodstatus) = 1", "CONVERT(INT, kodstatus) = 1"];
     $params = [];
 
     if ($q !== '') {
