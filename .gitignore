@@ -10,6 +10,7 @@ env
 !*.env.example
 
 # Runtime files
+/storage/mpdf/
 *.log
 *.sqlite
 /.last_update_check

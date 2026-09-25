@@ -62,7 +62,7 @@ $html = str_replace(
 );
 $html = str_replace('<div class="footer">Laporan ini dijana secara automatik oleh Sistem Akademik Pelajar (SAP).</div>', '', $html);
 
-$pdf = new Mpdf(['format' => 'A4', 'margin_left' => 15, 'margin_right' => 15, 'margin_top' => 12, 'margin_bottom' => 18]);
+$pdf = new Mpdf(['tempDir' => __DIR__ . '/../../storage/mpdf', 'format' => 'A4', 'margin_left' => 15, 'margin_right' => 15, 'margin_top' => 12, 'margin_bottom' => 18]);
 $pdf->SetTitle('Curriculum Vitae Pelajar - ' . (string)($student['matrik'] ?? ''));
 $pdf->SetHTMLFooter('<div style="border-top:1px solid #d8dee7;padding-top:4px;text-align:right;font-size:7pt;color:#64748b">Laporan ini dijana secara automatik oleh Sistem Akademik Pelajar (SAP) &nbsp;|&nbsp; Halaman {PAGENO}</div>');
 $pdf->WriteHTML($html);
