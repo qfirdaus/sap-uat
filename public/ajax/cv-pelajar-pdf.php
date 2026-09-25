@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../../../sap/ext/vendor/autoload.php';
+// mPDF is installed locally in SAP-UAT; no legacy SAP dependency is used.
+require_once __DIR__ . '/../../vendor/autoload.php';
 require_once __DIR__ . '/../includes/init.php';
 require_login();
 require_once __DIR__ . '/../controllers/MaklumatPelajarController.php';
@@ -52,4 +53,17 @@ ob_start(); ?>
 <table class="head"><tr><td class="brand-logo-cell" style="width:148px"><?php if ($logo): ?><img class="logo" src="<?= $logo ?>" width="140" height="49" style="width:140px;height:49px"><?php endif; ?></td><td class="brand-detail-cell" colspan="2"><div class="doc-title">CURRICULUM VITAE PELAJAR</div><div class="university" style="font-size:10px;line-height:1.15">UNIVERSITI PERTAHANAN NASIONAL MALAYSIA</div><div class="contact">Kem Perdana Sungai Besi, 57000 Kuala Lumpur<br>Telefon: +603-9051 3400 &middot; Emel: ppap@upnm.edu.my</div></td><td class="student-photo-cell" rowspan="2" style="width:76px"><?php if ($photo): ?><img class="photo" src="<?= $photo ?>"><?php endif; ?></td></tr><tr><td class="student-info-row" colspan="3"><span class="student-name"><?= pdfH($student['nama'] ?? '') ?></span>&nbsp;&nbsp;|&nbsp;&nbsp;<span class="student-matrik">NO. MATRIK: <?= pdfH($student['matrik'] ?? '') ?></span></td></tr></table>
 <div class="title">MAKLUMAT PERIBADI</div><?= pdfGrid($personal) ?><div class="title">MAKLUMAT PENGAJIAN</div><?= pdfGrid($study, 3) ?><div class="title">MAKLUMAT PENJAGA / WARIS</div><?= pdfGrid($guardian, 4) ?>
 <?php foreach ([['MAKLUMAT STATUS PELAJAR',$controller->studentStatusChanges,['Tarikh','Sesi','Status','Catatan'],static fn($r)=>[$r['tarikh']??'-',$r['sesi']??'-',trim(($r['kod_status']??'').' - '.($r['status']??'')),$r['catatan']??'-']],['MAKLUMAT STATUS PROGRAM',$controller->programStatusChanges,['Tarikh','Program Asal','Program Baru','Catatan'],static fn($r)=>[$r['tarikh']??'-',$r['prog_asal']??'-',$r['prog_baru']??'-',$r['catatan']??'-']],['MAKLUMAT STATUS KADET',$controller->cadetStatusChanges,['Tarikh','Kadet Asal','Kadet Baru','Catatan'],static fn($r)=>[$r['tarikh']??'-',$r['kadetasal']??'-',$r['kadetbaru']??'-',$r['catatan']??'-']],['MAKLUMAT PEPERIKSAAN',$controller->examinationResults,['Semester','Status Akademik','PNGS','PNGK'],static fn($r)=>[$r['term']??'-',trim(($r['kdkelulusan']??'').' - '.($r['kelulusan']??'')),$r['pngs']??'-',$r['pngk']??'-']],['KELAYAKAN AKADEMIK',$controller->spmResults,['Kod','Subjek','Gred'],static fn($r)=>[$r['kod']??'-',$r['subjek']??'-',$r['gred']??'-']],['REKOD TATATERTIB',[],['Rekod'],static fn($r)=>[$r['rekod']??'-']]] as [$title,$rows,$heads,$render]): ?><?php if ($rows === []) continue; ?><div class="title"><?= pdfH($title) ?></div><table class="grid"><colgroup><col style="width:24px"><?php foreach($heads as $_): ?><col><?php endforeach; ?></colgroup><tr><th>#</th><?php foreach($heads as $head): ?><th><?= pdfLabel($head) ?></th><?php endforeach; ?></tr><?php foreach($rows as $i=>$row): ?><tr><td><?= $i+1 ?></td><?php foreach($render($row) as $cell): ?><td><?= pdfH($cell) ?></td><?php endforeach; ?></tr><?php endforeach; ?></table><?php endforeach; ?><div class="footer">Laporan ini dijana secara automatik oleh Sistem Akademik Pelajar (SAP).</div>
-<?php $html = (string)ob_get_clean(); $html = str_replace(['<div class="title"><pagebreak />MAKLUMAT STATUS PROGRAM</div>', '<div class="title"><pagebreak />REKOD TATATERTIB</div>'], ['<pagebreak /><div class="title">MAKLUMAT STATUS PROGRAM</div>', '<pagebreak /><div class="title">REKOD TATATERTIB</div>'], $html); $html = str_replace('<div class="footer">Laporan ini dijana secara automatik oleh Sistem Akademik Pelajar (SAP).</div>', '', $html); $pdf = new Mpdf(['format' => 'A4','margin_left' => 15,'margin_right' => 15,'margin_top' => 12,'margin_bottom' => 18]); $pdf->SetTitle('Curriculum Vitae Pelajar - ' . (string)($student['matrik'] ?? '')); $pdf->SetHTMLFooter('<div style="border-top:1px solid #d8dee7;padding-top:4px;text-align:right;font-size:7pt;color:#64748b">Laporan ini dijana secara automatik oleh Sistem Akademik Pelajar (SAP) &nbsp;|&nbsp; Halaman {PAGENO}</div>'); $pdf->WriteHTML($html); $pdf->Output('Curriculum_Vitae_Pelajar_' . preg_replace('/\D+/', '', $matrik) . '.pdf', 'I');
+<?php
+$html = (string)ob_get_clean();
+$html = str_replace(
+    ['<div class="title"><pagebreak />MAKLUMAT STATUS PROGRAM</div>', '<div class="title"><pagebreak />REKOD TATATERTIB</div>'],
+    ['<pagebreak /><div class="title">MAKLUMAT STATUS PROGRAM</div>', '<pagebreak /><div class="title">REKOD TATATERTIB</div>'],
+    $html
+);
+$html = str_replace('<div class="footer">Laporan ini dijana secara automatik oleh Sistem Akademik Pelajar (SAP).</div>', '', $html);
+
+$pdf = new Mpdf(['format' => 'A4', 'margin_left' => 15, 'margin_right' => 15, 'margin_top' => 12, 'margin_bottom' => 18]);
+$pdf->SetTitle('Curriculum Vitae Pelajar - ' . (string)($student['matrik'] ?? ''));
+$pdf->SetHTMLFooter('<div style="border-top:1px solid #d8dee7;padding-top:4px;text-align:right;font-size:7pt;color:#64748b">Laporan ini dijana secara automatik oleh Sistem Akademik Pelajar (SAP) &nbsp;|&nbsp; Halaman {PAGENO}</div>');
+$pdf->WriteHTML($html);
+$pdf->Output('Curriculum_Vitae_Pelajar_' . preg_replace('/\D+/', '', $matrik) . '.pdf', 'I');
