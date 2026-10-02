@@ -13,7 +13,7 @@ if (!function_exists('h')) {
     function h(mixed $value): string { return htmlspecialchars((string)$value, ENT_QUOTES, 'UTF-8'); }
 }
 
-$totalStudents = $activeStudents = $inactiveStudents = $totalPrograms = 0;
+$totalStudents = $activeStudents = $inactiveStudents = 0;
 $statusRows = $cadetRows = $genderRows = $programRows = $combinedRows = [];
 $reportError = null;
 
@@ -24,7 +24,6 @@ try {
     $totalStudents = (int)$pdo->query('SELECT COUNT(*) FROM v210_sap_web WHERE matrik IS NOT NULL')->fetchColumn();
     $activeStudents = (int)$pdo->query("SELECT COUNT(*) FROM v210_sap_web WHERE matrik IS NOT NULL AND UPPER(LTRIM(RTRIM(COALESCE(statuskategori, '')))) = 'AKTIF'")->fetchColumn();
     $inactiveStudents = max(0, $totalStudents - $activeStudents);
-    $totalPrograms = (int)$pdo->query("SELECT COUNT(DISTINCT NULLIF(LTRIM(RTRIM(COALESCE(kdprogram, ''))), '')) FROM v210_sap_web WHERE matrik IS NOT NULL")->fetchColumn();
 
     $loadRows = static function (PDO $connection, string $sql): array {
         return $connection->query($sql)->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -57,7 +56,7 @@ $combinedTable = static function (array $rows): void {
     $total = static function (string $column) use ($rows): int {
         return array_sum(array_map(static fn(array $row): int => (int)($row[$column] ?? 0), $rows));
     };
-    echo '<div class="table-responsive report-combined-table"><table class="table table-sm report-table mb-0"><thead><tr><th rowspan="2" class="text-center align-middle">#</th><th rowspan="2" class="text-center align-middle">Kod Program</th><th rowspan="2" class="text-start align-middle">Program</th><th colspan="2" class="text-center">Awam</th><th colspan="2" class="text-center">Kadet</th><th colspan="2" class="text-center">Jumlah Pelajar</th></tr><tr><th class="text-center">Lelaki</th><th class="text-center">Perempuan</th><th class="text-center">Lelaki</th><th class="text-center">Perempuan</th><th class="text-center">Lelaki</th><th class="text-center">Perempuan</th></tr></thead><tbody>';
+    echo '<div class="table-responsive report-combined-table"><table class="table table-sm report-table mb-0"><thead><tr><th rowspan="2" class="text-center align-middle">#</th><th rowspan="2" class="text-center align-middle">Kod Program</th><th rowspan="2" class="text-start align-middle">Program</th><th colspan="2" class="text-center">Awam</th><th colspan="2" class="text-center">Kadet</th><th colspan="3" class="text-center">Jumlah Pelajar</th></tr><tr><th class="text-center">Lelaki</th><th class="text-center">Perempuan</th><th class="text-center">Lelaki</th><th class="text-center">Perempuan</th><th class="text-center">Lelaki</th><th class="text-center">Perempuan</th><th class="text-center">Jumlah</th></tr></thead><tbody>';
     foreach ($rows as $index => $row) {
         $program = (string)($row['kod_program'] ?? '');
         $detailLink = static function (string $gender, string $cadet = '') use ($program): string {
@@ -65,9 +64,11 @@ $combinedTable = static function (array $rows): void {
             if ($cadet !== '') $query .= '&kategori_kadet=' . rawurlencode($cadet);
             return '<a class="report-count report-count-link" href="' . h($query) . '" title="Lihat senarai pelajar">';
         };
-        echo '<tr><td>' . ($index + 1) . '</td><td class="text-center"><span class="report-category">' . h($program ?: '-') . '</span></td><td>' . h((string)($row['program'] ?? '-')) . '</td><td class="text-center">' . $detailLink('LELAKI', 'AWAM') . number_format((int)($row['awam_lelaki'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('PEREMPUAN', 'AWAM') . number_format((int)($row['awam_perempuan'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('LELAKI', 'KADET') . number_format((int)($row['kadet_lelaki'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('PEREMPUAN', 'KADET') . number_format((int)($row['kadet_perempuan'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('LELAKI') . number_format((int)($row['jumlah_lelaki'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('PEREMPUAN') . number_format((int)($row['jumlah_perempuan'] ?? 0)) . '</a></td></tr>';
+        $programTotal = (int)($row['jumlah_lelaki'] ?? 0) + (int)($row['jumlah_perempuan'] ?? 0);
+        echo '<tr><td>' . ($index + 1) . '</td><td class="text-center"><span class="report-category">' . h($program ?: '-') . '</span></td><td>' . h((string)($row['program'] ?? '-')) . '</td><td class="text-center">' . $detailLink('LELAKI', 'AWAM') . number_format((int)($row['awam_lelaki'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('PEREMPUAN', 'AWAM') . number_format((int)($row['awam_perempuan'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('LELAKI', 'KADET') . number_format((int)($row['kadet_lelaki'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('PEREMPUAN', 'KADET') . number_format((int)($row['kadet_perempuan'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('LELAKI') . number_format((int)($row['jumlah_lelaki'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('PEREMPUAN') . number_format((int)($row['jumlah_perempuan'] ?? 0)) . '</a></td><td class="text-center">' . $detailLink('') . number_format($programTotal) . '</a></td></tr>';
     }
-    echo '</tbody><tfoot><tr><td></td><td></td><td><strong>JUMLAH KESELURUHAN</strong></td><td class="text-center"><span class="report-count">' . number_format($total('awam_lelaki')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('awam_perempuan')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('kadet_lelaki')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('kadet_perempuan')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('jumlah_lelaki')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('jumlah_perempuan')) . '</span></td></tr></tfoot></table></div>';
+    $overallTotal = $total('jumlah_lelaki') + $total('jumlah_perempuan');
+    echo '</tbody><tfoot><tr><td></td><td></td><td><strong>JUMLAH KESELURUHAN</strong></td><td class="text-center"><span class="report-count">' . number_format($total('awam_lelaki')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('awam_perempuan')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('kadet_lelaki')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('kadet_perempuan')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('jumlah_lelaki')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($total('jumlah_perempuan')) . '</span></td><td class="text-center"><span class="report-count">' . number_format($overallTotal) . '</span></td></tr></tfoot></table></div>';
 };
 ?>
 <!doctype html>
@@ -87,10 +88,9 @@ $combinedTable = static function (array $rows): void {
   <?php if ($reportError !== null): ?><div class="alert alert-warning mb-0"><i class="ri-error-warning-line me-1"></i><?= h($reportError) ?></div><?php else: ?>
   <section class="student-report-shell">
     <div class="row g-3 mb-3">
-      <div class="col-6 col-xl-3"><article class="report-summary"><span class="report-icon blue"><i class="ri-group-line"></i></span><div><small>Jumlah Pelajar</small><strong><?= number_format($totalStudents) ?></strong></div></article></div>
-      <div class="col-6 col-xl-3"><article class="report-summary"><span class="report-icon green"><i class="ri-user-follow-line"></i></span><div><small>Pelajar Aktif</small><strong><?= number_format($activeStudents) ?></strong></div></article></div>
-      <div class="col-6 col-xl-3"><article class="report-summary"><span class="report-icon orange"><i class="ri-user-unfollow-line"></i></span><div><small>Tidak Aktif</small><strong><?= number_format($inactiveStudents) ?></strong></div></article></div>
-      <div class="col-6 col-xl-3"><article class="report-summary"><span class="report-icon purple"><i class="ri-graduation-cap-line"></i></span><div><small>Program Pengajian</small><strong><?= number_format($totalPrograms) ?></strong></div></article></div>
+      <div class="col-12 col-md-4"><article class="report-summary"><span class="report-icon blue"><i class="ri-group-line"></i></span><div><small>Jumlah Pelajar</small><strong><?= number_format($totalStudents) ?></strong></div></article></div>
+      <div class="col-12 col-md-4"><article class="report-summary"><span class="report-icon green"><i class="ri-user-follow-line"></i></span><div><small>Pelajar Aktif</small><strong><?= number_format($activeStudents) ?></strong></div></article></div>
+      <div class="col-12 col-md-4"><article class="report-summary"><span class="report-icon orange"><i class="ri-user-unfollow-line"></i></span><div><small>Tidak Aktif</small><strong><?= number_format($inactiveStudents) ?></strong></div></article></div>
     </div>
     <section class="report-card report-combined-card mb-3"><header><span><i class="ri-file-list-3-line"></i> Statistik Pelajar Aktif Mengikut Kategori Kadet</span><small>Pecahan Awam dan Kadet kepada lelaki serta perempuan bagi setiap program aktif</small></header><?php $combinedTable($combinedRows); ?></section>
     <div class="row g-3">
