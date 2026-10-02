@@ -836,7 +836,7 @@ addHealthCheck($healthChecks, t('dashboard_health_tz','Time & Timezone'), $tzSta
           <?php endif; ?>
         </div>
 
-        <?php $studentStatsStandalone = false; include __DIR__ . '/../includes/student-statistics-section.php'; ?>
+        <?php $studentStatsStandalone = false; $studentStatsShowStatus = true; include __DIR__ . '/../includes/student-statistics-section.php'; ?>
 
     <?php include __DIR__ . '/../includes/footer.php'; ?>
   </div>
